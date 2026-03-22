@@ -100,9 +100,10 @@ include(TableGen)
 include(AddLLVM)
 include(AddMLIR)
 
-# Include directories for LLVM and MLIR.
-include_directories(${LLVM_INCLUDE_DIRS})
-include_directories(${MLIR_INCLUDE_DIRS})
+# Include directories for LLVM and MLIR (SYSTEM to suppress warnings from
+# LLVM/MLIR headers when compiling CUDA Tile targets with strict warnings).
+include_directories(SYSTEM ${LLVM_INCLUDE_DIRS})
+include_directories(SYSTEM ${MLIR_INCLUDE_DIRS})
 
 # Create a cross-compilation target for CUDA Tile. This is mostly required by
 # cuda-tile-tblgen as we need to use the host's tablegen executable.

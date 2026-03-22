@@ -19,6 +19,7 @@ add_mlir_library(CudaTileBytecodeReader
     Core
     Support
 )
+cuda_tile_enable_warnings(CudaTileBytecodeReader)
 
 if(NOT DEFINED CUDA_TILE_TABLEGEN_EXE)
     message(FATAL_ERROR "CUDA_TILE_TABLEGEN_EXE is not defined")

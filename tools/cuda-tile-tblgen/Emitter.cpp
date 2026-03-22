@@ -29,22 +29,37 @@ raw_ostream &operator<<(raw_ostream &os, const TileIRTy &type) {
   return os;
 }
 
-raw_ostream& operator<<(raw_ostream& os, const Header& header) {
-    char underline;
-    switch (header.level) {
-        case 1: underline = '#'; break;
-        case 2: underline = '*'; break;
-        case 3: underline = '='; break;
-        case 4: underline = '-'; break;
-        case 5: underline = '^'; break;
-        case 6: underline = '"'; break;
-        default: underline = '"'; break;
-    }
+raw_ostream &operator<<(raw_ostream &os, const Header &header) {
+  char underline;
+  switch (header.level) {
+  case 1:
+    underline = '#';
+    break;
+  case 2:
+    underline = '*';
+    break;
+  case 3:
+    underline = '=';
+    break;
+  case 4:
+    underline = '-';
+    break;
+  case 5:
+    underline = '^';
+    break;
+  case 6:
+    underline = '"';
+    break;
+  default:
+    underline = '"';
+    break;
+  }
 
-    // Generate a string where the header.title is on one line and the underline is the same length.
-    std::string underline_str(header.title.size(), underline);
-    os << header.title << "\n" << underline_str << "\n";
-    return os;
+  // Generate a string where the header.title is on one line and the underline
+  // is the same length.
+  std::string underline_str(header.title.size(), underline);
+  os << header.title << "\n" << underline_str << "\n";
+  return os;
 }
 
 raw_ostream &operator<<(raw_ostream &os, const Table &table) {
@@ -148,7 +163,7 @@ SpecEmitter::SpecEmitter(raw_indented_ostream &os,
 }
 
 void SpecEmitter::emitLiteralInclude(
-    const std::string &fileName, const std::string &anchor,
+    const std::string &fileName, const std::string & /*anchor*/,
     const std::vector<std::tuple<int, int>> &lineRanges,
     const std::string &language, const std::optional<int> dedent) {
   this->os << ".. literalinclude:: " << fileName << "\n";

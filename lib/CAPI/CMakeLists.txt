@@ -6,5 +6,6 @@ add_mlir_public_c_api_library(CudaTileCAPIRegistration
   CudaTileTransforms
   MLIRCAPIIR
 )
+cuda_tile_enable_warnings(CudaTileCAPIRegistration)
 
 add_subdirectory(Dialect)

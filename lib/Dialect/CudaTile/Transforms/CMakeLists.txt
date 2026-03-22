@@ -13,3 +13,4 @@ add_mlir_library(CudaTileTransforms
   LINK_COMPONENTS
   Support
 )
+cuda_tile_enable_warnings(CudaTileTransforms)

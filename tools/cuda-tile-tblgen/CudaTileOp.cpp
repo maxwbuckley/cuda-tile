@@ -276,9 +276,10 @@ getOperationConstraints(const mlir::tblgen::Operator &op,
     } else {
       std::string traitName = def.getName().str();
       auto traitConstraint = getTraitConstraint(traitName);
-      if (traitConstraint)
+      if (traitConstraint) {
         constraints.push_back(
             OperationConstraint(OperationTrait{*traitConstraint}));
+      }
     }
   }
 
@@ -453,7 +454,7 @@ static Table getTableFromRecord(const Record *tableDef) {
   auto headerDefs = tableDef->getValueAsListOfDefs("headers");
 
   for (auto headerDef : headerDefs) {
-    std::string label = headerDef->getValueAsString("label").str();
+    std::string headerLabel = headerDef->getValueAsString("label").str();
     std::string contentType = headerDef->getValueAsString("contentType").str();
 
     ColumnFormatType format;
@@ -467,7 +468,7 @@ static Table getTableFromRecord(const Record *tableDef) {
     std::optional<int> oWidth =
         width == -1 ? std::nullopt : std::optional<int>(width);
 
-    headers.emplace_back(label, oWidth, format);
+    headers.emplace_back(headerLabel, oWidth, format);
   }
 
   auto rowDefs = tableDef->getValueAsListOfDefs("rows");

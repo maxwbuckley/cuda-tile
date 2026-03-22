@@ -25,3 +25,4 @@ add_mlir_tool(cuda-tile-opt
 
 target_link_libraries(cuda-tile-opt PRIVATE ${LIBS})
 llvm_update_compile_flags(cuda-tile-opt)
+cuda_tile_enable_warnings(cuda-tile-opt)

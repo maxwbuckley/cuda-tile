@@ -24,3 +24,4 @@ add_mlir_library(CudaTileDialect
   MLIRIR
   MLIRSideEffectInterfaces
 )
+cuda_tile_enable_warnings(CudaTileDialect)
