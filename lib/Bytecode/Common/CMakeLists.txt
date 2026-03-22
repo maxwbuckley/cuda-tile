@@ -14,6 +14,7 @@ add_mlir_library(CudaTileBytecodeCommon
   LINK_COMPONENTS
     Support
 )
+cuda_tile_enable_warnings(CudaTileBytecodeCommon)
 
 # Ensure testing flag is available for version support.
 if(CUDA_TILE_ENABLE_TESTING)

@@ -26,3 +26,45 @@ macro(set_cuda_tile_build_type)
     endif()
   endif()
 endmacro(set_cuda_tile_build_type)
+
+# -----------------------------------------------------------------------------
+# Apply strict compiler warnings to a CUDA Tile target.
+#
+# This must be used instead of add_compile_options() because
+# add_compile_options() propagates to LLVM/MLIR subdirectory targets.
+# Call cuda_tile_enable_warnings(<target>) after each CUDA Tile target
+# is created.
+# -----------------------------------------------------------------------------
+function(cuda_tile_enable_warnings target)
+  if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(${target} PRIVATE
+      -Wall
+      -Wextra
+      -Wpedantic
+      -Wnon-virtual-dtor
+      -Woverloaded-virtual
+      -Wcast-align
+      -Wunused
+      -Wformat=2
+      -Werror
+      # MLIR tablegen-generated .inc headers contain methods with unused
+      # parameters (e.g. getODSOperandIndexAndLength) and doc comments with
+      # LaTeX backslashes that GCC interprets as line continuations. Suppress
+      # these specific sub-warnings while keeping the rest of -Wunused and
+      # -Wextra active.
+      -Wno-unused-parameter
+      -Wno-comment
+    )
+    # GCC's -Wshadow warns about constructor parameters that share names
+    # with members — a ubiquitous C++ pattern. Use -Wshadow=local to catch
+    # local-variable shadowing without those false positives. Clang's
+    # -Wshadow already excludes the constructor case.
+    if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+      target_compile_options(${target} PRIVATE -Wshadow=local)
+    else()
+      target_compile_options(${target} PRIVATE -Wshadow)
+    endif()
+  elseif(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
+    target_compile_options(${target} PRIVATE /W4 /WX)
+  endif()
+endfunction()

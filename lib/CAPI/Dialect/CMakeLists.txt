@@ -3,9 +3,10 @@ add_mlir_public_c_api_library(CudaTileCAPIDialects
 
   PARTIAL_SOURCES_INTENDED
   LINK_LIBS PUBLIC
-  MLIRCAPIIR  
+  MLIRCAPIIR
   CudaTileDialect
   CudaTileTransforms
   CudaTileBytecodeWriter
   CudaTileBytecodeCommon
 )
+cuda_tile_enable_warnings(CudaTileCAPIDialects)

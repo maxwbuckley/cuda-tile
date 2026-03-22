@@ -10,6 +10,9 @@
 
 #include "SpecGen.h"
 
+#include "CudaTileAttr.h"
+#include "CudaTileOp.h"
+#include "Emitter.h"
 #include "mlir/Support/IndentedOstream.h"
 #include "mlir/TableGen/AttrOrTypeDef.h"
 #include "mlir/TableGen/Attribute.h"
@@ -29,9 +32,6 @@
 #include "llvm/TableGen/Record.h"
 #include "llvm/TableGen/TableGenBackend.h"
 
-#include "CudaTileAttr.h"
-#include "CudaTileOp.h"
-#include "Emitter.h"
 #include <sstream>
 #include <string>
 #include <variant>
@@ -68,30 +68,35 @@ static cl::opt<std::string> opExcFilter(
 static std::string getOperationName(const Record &def) {
   auto prefix = def.getValueAsDef("opDialect")->getValueAsString("name");
   auto opName = def.getValueAsString("opName");
-  if (prefix.empty())
+  if (prefix.empty()) {
     return std::string(opName);
+  }
   return std::string(formatv("{0}.{1}", prefix, opName));
 }
 
 static std::vector<const Record *>
 getRequestedOpDefinitions(const RecordKeeper &records) {
   const Record *classDef = records.getClass("Op");
-  if (!classDef)
+  if (!classDef) {
     PrintFatalError("ERROR: Couldn't find the 'Op' class!\n");
+  }
 
   Regex includeRegex(opIncFilter), excludeRegex(opExcFilter);
   std::vector<const Record *> defs;
   for (const auto &def : records.getDefs()) {
-    if (!def.second->isSubClassOf(classDef))
+    if (!def.second->isSubClassOf(classDef)) {
       continue;
+    }
     // Include if no include filter or include filter matches.
     if (!opIncFilter.empty() &&
-        !includeRegex.match(getOperationName(*def.second)))
+        !includeRegex.match(getOperationName(*def.second))) {
       continue;
+    }
     // Unless there is an exclude filter and it matches.
     if (!opExcFilter.empty() &&
-        excludeRegex.match(getOperationName(*def.second)))
+        excludeRegex.match(getOperationName(*def.second))) {
       continue;
+    }
     defs.push_back(def.second.get());
   }
 
@@ -170,10 +175,9 @@ static FormattedExample processExample(const std::string &example) {
   // has no breaks.
   compressedLineRanges.emplace_back(startRange, endRange);
 
-  for (const auto &line : lines) {
-    if (!line.empty()) {
-      // std::cout << "line: " << line << std::endl;
-      exampleReindented << line.substr(reindent) << std::endl;
+  for (const auto &outputLine : lines) {
+    if (!outputLine.empty()) {
+      exampleReindented << outputLine.substr(reindent) << std::endl;
     } else {
       exampleReindented << std::endl;
     }
@@ -194,10 +198,11 @@ void emitSummary(StringRef summary, raw_ostream &os) {
 /// Emit the given named constraint.
 template <typename T>
 static void emitNamedConstraint(const T &it, raw_ostream &os) {
-  if (!it.name.empty())
+  if (!it.name.empty()) {
     os << "| `" << it.name << "`";
-  else
+  } else {
     os << "&laquo;unnamed&raquo;";
+  }
   os << " | " << it.constraint.getSummary() << "\n";
 }
 
@@ -557,15 +562,17 @@ static void emitOpDoc(SpecEmitter &emitter, CudaTileOp &cudaTileOp,
   }
 
   // Emit the summary, syntax, and description if present.
-  if (cudaTileOp.op.hasSummary())
+  if (cudaTileOp.op.hasSummary()) {
     emitter.emitSummary(cudaTileOp.op.getSummary());
+  }
 
   emitOperationSignature(emitter, cudaTileOp);
 
   emitter.os << Header(OP_DETAILS_HEADER_LEVEL, "Description");
-  if (cudaTileOp.op.hasDescription())
+  if (cudaTileOp.op.hasDescription()) {
     // todo delete this helper and move to emitter.h
     emitter.emitDescription(cudaTileOp.getDescription());
+  }
 
   // Emit the attributes.
   auto attributes = cudaTileOp.getAttributes();
@@ -604,12 +611,12 @@ static void emitOpDoc(SpecEmitter &emitter, CudaTileOp &cudaTileOp,
 
   if (!cudaTileOp.getMLIRExamples().empty()) {
     emitter.os << Header(OP_DETAILS_HEADER_LEVEL, "Examples");
-    int i = 0;
+    int exampleIdx = 0;
     for (auto &example : cudaTileOp.getMLIRExamples()) {
       std::string exampleName =
-          cudaTileOp.getOperationName() + "_" + std::to_string(i);
+          cudaTileOp.getOperationName() + "_" + std::to_string(exampleIdx);
       emitOperationExample(emitter, exampleName, example);
-      i++;
+      exampleIdx++;
     }
   }
 
@@ -758,6 +765,5 @@ void cudatile::tblgen::generateSpec(
       // Call emitOpDoc with the emitter and the operation.
       emitOpDoc(emitter, cudaTileOp, attrDefs);
     }
-
   }
 }

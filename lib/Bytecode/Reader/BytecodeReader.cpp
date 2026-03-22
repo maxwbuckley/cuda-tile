@@ -12,16 +12,16 @@
 
 #include "cuda_tile/Bytecode/Reader/BytecodeReader.h"
 
+#include "../BytecodeEnums.h"
+#include "cuda_tile/Bytecode/Common/Version.h"
+#include "cuda_tile/Dialect/CudaTile/IR/Attributes.h"
+#include "cuda_tile/Dialect/CudaTile/IR/Types.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Verifier.h"
 
 #include "llvm/ADT/ScopeExit.h"
 
-#include "../BytecodeEnums.h"
-#include "cuda_tile/Bytecode/Common/Version.h"
-#include "cuda_tile/Dialect/CudaTile/IR/Attributes.h"
-#include "cuda_tile/Dialect/CudaTile/IR/Types.h"
 #include <optional>
 
 using namespace mlir;
@@ -38,14 +38,16 @@ static const uint8_t kTileIRBytecodeMagic[8] = {
 
 bool cuda_tile::isTileIRBytecode(llvm::MemoryBufferRef bytecodeBuffer) {
   // Check if the bytecode buffer starts with the expected magic number.
-  if (bytecodeBuffer.getBufferSize() < sizeof(kTileIRBytecodeMagic))
+  if (bytecodeBuffer.getBufferSize() < sizeof(kTileIRBytecodeMagic)) {
     return false;
+  }
   return memcmp(bytecodeBuffer.getBufferStart(), kTileIRBytecodeMagic,
                 sizeof(kTileIRBytecodeMagic)) == 0;
 }
 bool cuda_tile::isTileIRBytecode(const char *bytecodeBuffer) {
-  if (!bytecodeBuffer)
+  if (!bytecodeBuffer) {
     return false;
+  }
 
   // Use strlen size because the magic number is null-terminated.
   size_t strSize =
@@ -89,23 +91,26 @@ public:
       : data(data), offset(0), context(context) {}
 
   LogicalResult readVarInt(uint64_t &result, uint64_t max = 0) {
-    if (offset >= data.size())
+    if (offset >= data.size()) {
       return failure();
+    }
     result = 0;
     uint64_t shift = 0;
     uint8_t byte;
     do {
-      if (offset >= data.size() || shift > 63)
+      if (offset >= data.size() || shift > 63) {
         return failure();
+      }
       byte = data[offset++];
       uint64_t value = byte & 0x7F;
       result |= (value << shift);
       shift += 7;
     } while (byte & 0x80);
-    if (max && result > max)
+    if (max && result > max) {
       return emitError() << "varint value exceeds maximum supported"
                          << " capacity. (expected value less than " << max
                          << ", got " << result << ").";
+    }
     return success();
   }
 
@@ -113,8 +118,9 @@ public:
   /// signed varint is encoded as a normal varint with zigzag encoding applied,
   /// i.e. the low bit of the value is used to indicate the sign.
   LogicalResult readSignedVarInt(uint64_t &result) {
-    if (failed(readVarInt(result)))
+    if (failed(readVarInt(result))) {
       return failure();
+    }
     // Essentially (but using unsigned): (x >> 1) ^ -(x & 1).
     result = (result >> 1) ^ (~(result & 1) + 1);
     return success();
@@ -122,19 +128,22 @@ public:
 
   template <typename T>
   std::enable_if_t<std::is_integral<T>::value, LogicalResult> readLE(T &value) {
-    if (offset + sizeof(T) > data.size())
+    if (offset + sizeof(T) > data.size()) {
       return failure();
+    }
     value = 0;
-    for (size_t i = 0; i < sizeof(T); ++i)
+    for (size_t i = 0; i < sizeof(T); ++i) {
       value |= static_cast<T>(data[offset++]) << (8 * i);
+    }
     return success();
   }
 
   template <typename T>
   std::enable_if_t<std::is_integral<T>::value, T> readLE() {
     T value = 0;
-    if (failed(readLE(value)))
+    if (failed(readLE(value))) {
       return 0;
+    }
     return value;
   }
 
@@ -142,14 +151,16 @@ public:
   std::enable_if_t<std::is_integral<T>::value, LogicalResult>
   readLE(size_t count, SmallVectorImpl<T> &result) {
     // Validate size to prevent excessive memory allocation.
-    if (count > (std::numeric_limits<uint32_t>::max() - 1))
+    if (count > (std::numeric_limits<uint32_t>::max() - 1)) {
       return emitError() << "array size in bytecode (" << count
                          << ") exceeds maximum supported capacity";
+    }
     result.reserve(count);
     for (size_t i = 0; i < count; ++i) {
       T value;
-      if (failed(readLE(value)))
+      if (failed(readLE(value))) {
         return failure();
+      }
       result.push_back(value);
     }
     return success();
@@ -159,8 +170,9 @@ public:
   std::enable_if_t<std::is_integral<T>::value, LogicalResult>
   readLEVarSize(SmallVectorImpl<T> &result) {
     uint64_t size;
-    if (failed(readVarInt(size)))
+    if (failed(readVarInt(size))) {
       return failure();
+    }
     return readLE(static_cast<size_t>(size), result);
   }
 
@@ -170,8 +182,9 @@ public:
     static_assert(std::numeric_limits<T>::is_iec559, "IEEE 754 required");
     using IntType = std::conditional_t<sizeof(T) == 4, uint32_t, uint64_t>;
     IntType intValue;
-    if (failed(readLE(intValue)))
+    if (failed(readLE(intValue))) {
       return failure();
+    }
     std::memcpy(&value, &intValue, sizeof(T));
     return success();
   }
@@ -179,14 +192,16 @@ public:
   template <typename T>
   std::enable_if_t<std::is_floating_point<T>::value, T> readLE() {
     T value = 0;
-    if (failed(readLE(value)))
+    if (failed(readLE(value))) {
       return 0;
+    }
     return value;
   }
 
   LogicalResult skip(size_t bytes) {
-    if (offset + bytes > data.size())
+    if (offset + bytes > data.size()) {
       return failure();
+    }
     offset += bytes;
     return success();
   }
@@ -205,8 +220,9 @@ public:
 
   ArrayRef<uint8_t> readBytes(size_t length) {
     ArrayRef<uint8_t> result;
-    if (failed(readBytes(length, result)))
+    if (failed(readBytes(length, result))) {
       return ArrayRef<uint8_t>();
+    }
     return result;
   }
 
@@ -219,9 +235,10 @@ public:
 
   LogicalResult getString(uint64_t index, StringRef &result,
                           MLIRContext &context) const {
-    if (index >= stringOffsets.size())
+    if (index >= stringOffsets.size()) {
       return ::emitError(UnknownLoc::get(&context))
              << "string index " << index << " out of bounds";
+    }
     uint32_t start = stringOffsets[index];
     uint32_t end = (index + 1 < stringOffsets.size())
                        ? stringOffsets[index + 1]
@@ -233,8 +250,9 @@ public:
   /// Reads a string index and returns the corresponding StringRef.
   LogicalResult readAndGetString(StringRef &result) {
     uint64_t stringIndex;
-    if (failed(readVarInt(stringIndex)))
+    if (failed(readVarInt(stringIndex))) {
       return failure();
+    }
     return getString(stringIndex, result, context);
   }
 
@@ -246,14 +264,17 @@ public:
   size_t currentOffset() const { return offset; }
 
   LogicalResult skipPadding(uint64_t alignment) {
-    if (alignment < 2)
+    if (alignment < 2) {
       return success();
-    if (remaining() == 0)
+    }
+    if (remaining() == 0) {
       return failure();
+    }
     size_t offset_position = this->currentOffset();
     size_t padding = (alignment - (offset_position % alignment)) % alignment;
-    if (remaining() < padding)
+    if (remaining() < padding) {
       return failure();
+    }
     return skip(padding);
   }
 
@@ -295,20 +316,22 @@ struct SectionHeader {
 /// version.
 static LogicalResult parseHeader(EncodingReader &reader, MLIRContext &context) {
   // Read and verify the magic number.
-  for (int i = 0, e = std::size(kTileIRBytecodeMagic); i < e; ++i) {
+  for (size_t i = 0, e = std::size(kTileIRBytecodeMagic); i < e; ++i) {
     uint8_t byte = reader.readLE<uint8_t>();
-    if (byte != kTileIRBytecodeMagic[i])
+    if (byte != kTileIRBytecodeMagic[i]) {
       return reader.emitError()
              << "invalid magic number at position " << i << ", got "
              << static_cast<int>(byte) << " expected "
              << static_cast<int>(kTileIRBytecodeMagic[i]);
+    }
   }
   /// Read and verify the version number.
   uint8_t verMajor, verMinor;
   uint16_t tag;
   if (failed(reader.readLE(verMajor)) || failed(reader.readLE(verMinor)) ||
-      failed(reader.readLE(tag)))
+      failed(reader.readLE(tag))) {
     return failure();
+  }
   // Check if the version is supported.
   std::optional<BytecodeVersion> versionInfo =
       BytecodeVersion::fromVersion(verMajor, verMinor, tag);
@@ -326,42 +349,51 @@ static LogicalResult parseHeader(EncodingReader &reader, MLIRContext &context) {
 static LogicalResult parseSectionHeader(EncodingReader &reader,
                                         SectionHeader &header,
                                         MLIRContext &context) {
-  if (reader.remaining() < 1)
+  if (reader.remaining() < 1) {
     return reader.emitError()
            << "unexpected end of data while reading section header";
+  }
   uint8_t idAndIsAligned;
-  if (failed(reader.readLE(idAndIsAligned)))
+  if (failed(reader.readLE(idAndIsAligned))) {
     return reader.emitError() << "failed to read section ID and alignment flag";
+  }
   header.sectionID = idAndIsAligned & 0x7F;
   header.hasAlignment = (idAndIsAligned & 0x80) != 0;
 
   // If this is the end section marker, return success.
   if (header.sectionID == Section::EndOfBytecode) {
-    if (header.hasAlignment)
+    if (header.hasAlignment) {
       return reader.emitError()
              << "end section should not have alignment flag set";
+    }
     return success();
   }
-  if (header.sectionID >= Section::NumSections)
+  if (header.sectionID >= Section::NumSections) {
     return reader.emitError() << "unknown section ID: " << header.sectionID;
+  }
 
   // Read the section length.
-  if (failed(reader.readVarInt(header.length)))
+  if (failed(reader.readVarInt(header.length))) {
     return reader.emitError() << "failed to read section length";
-  if (header.length > reader.remaining())
+  }
+  if (header.length > reader.remaining()) {
     return reader.emitError()
            << "section length " << header.length
            << " exceeds remaining data size " << reader.remaining();
+  }
 
   // If the section is aligned, read the alignment value and adjust the buffer.
   if (header.hasAlignment) {
-    if (failed(reader.readVarInt(header.alignment)))
+    if (failed(reader.readVarInt(header.alignment))) {
       return failure();
-    if (header.alignment == 0 || !llvm::isPowerOf2_64(header.alignment))
+    }
+    if (header.alignment == 0 || !llvm::isPowerOf2_64(header.alignment)) {
       return reader.emitError()
              << "invalid alignment value: " << header.alignment;
-    if (failed(reader.skipPadding(header.alignment)))
+    }
+    if (failed(reader.skipPadding(header.alignment))) {
       return failure();
+    }
   }
   return success();
 }
@@ -381,8 +413,9 @@ static LogicalResult parseStringSection(ArrayRef<uint8_t> payload,
                                         MLIRContext &context) {
   EncodingReader sectionReader(payload, context);
   uint64_t numStrings;
-  if (failed(sectionReader.readVarInt(numStrings)))
+  if (failed(sectionReader.readVarInt(numStrings))) {
     return failure();
+  }
 
   // Handle empty string table case.
   if (numStrings == 0) {
@@ -401,16 +434,19 @@ static LogicalResult parseStringSection(ArrayRef<uint8_t> payload,
   }
 
   // Ensure 4-byte alignment for the start indices array.
-  if (failed(sectionReader.skipPadding(alignof(uint32_t))))
+  if (failed(sectionReader.skipPadding(alignof(uint32_t)))) {
     return failure();
+  }
   // Read the string offsets directly from the payload.
   const uint32_t *startIndicesPtr =
       reinterpret_cast<const uint32_t *>(sectionReader.getCurrentPtr());
-  if (!startIndicesPtr)
+  if (!startIndicesPtr) {
     return failure();
+  }
   ArrayRef<uint32_t> stringOffsets(startIndicesPtr, numStrings);
-  if (failed(sectionReader.skip(numStrings * sizeof(uint32_t))))
+  if (failed(sectionReader.skip(numStrings * sizeof(uint32_t)))) {
     return failure();
+  }
   // Get the string data
   StringRef stringData(
       reinterpret_cast<const char *>(sectionReader.getCurrentPtr()),
@@ -486,17 +522,19 @@ static LogicalResult parseGenericEnumAttr(EncodingReader &reader,
                                           MLIRContext &context,
                                           AttrType &nativeValue) {
   uint64_t rawEnumValueU64;
-  if (failed(reader.readVarInt(rawEnumValueU64)))
+  if (failed(reader.readVarInt(rawEnumValueU64))) {
     return reader.emitError() << "failed to read VarInt for enum attribute.";
+  }
   uint32_t rawEnumValue = static_cast<uint32_t>(rawEnumValueU64);
 
   using EnumType = decltype(std::declval<AttrType>().getValue());
   static_assert(!std::is_void_v<EnumType>,
                 "EnumType cannot be void for enum attribute.");
   std::optional<EnumType> enumOpt = symbolizeEnum<EnumType>(rawEnumValue);
-  if (!enumOpt)
+  if (!enumOpt) {
     return reader.emitError()
            << "invalid integer value for enum type: " << rawEnumValue;
+  }
   nativeValue = AttrType::get(&context, enumOpt.value());
   return success();
 }
@@ -527,36 +565,42 @@ public:
   }
 
   Type getType(uint64_t typeIndex) {
-    if (typeIndex >= typeCache.size())
+    if (typeIndex >= typeCache.size()) {
       return Type();
-    if (typeCache[typeIndex])
+    }
+    if (typeCache[typeIndex]) {
       return typeCache[typeIndex];
+    }
 
     // Check for recursion.
-    if (currentlyParsing.count(typeIndex))
+    if (currentlyParsing.count(typeIndex)) {
       return Type();
+    }
     // Mark this type as currently being parsed.
     currentlyParsing.insert(typeIndex);
-    auto removeIndex =
-        llvm::make_scope_exit([&] { currentlyParsing.erase(typeIndex); });
+    llvm::scope_exit removeIndex([&] { currentlyParsing.erase(typeIndex); });
     // Calculate the boundaries for the type data.
     uint32_t start = typeStartIndices[typeIndex];
     uint32_t end = (typeIndex + 1 < typeStartIndices.size())
                        ? typeStartIndices[typeIndex + 1]
                        : payload.size();
-    if (end < start || end > payload.size())
+    if (end < start || end > payload.size()) {
       return Type();
+    }
     // Parse the type from its specific byte slice.
     EncodingReader typeReader(payload.slice(start, end - start), context);
     uint64_t typeTag;
-    if (failed(typeReader.readVarInt(typeTag)))
+    if (failed(typeReader.readVarInt(typeTag))) {
       return nullptr;
+    }
     ArrayRef<uint8_t> payloadBytes;
-    if (typeReader.remaining() > 0)
+    if (typeReader.remaining() > 0) {
       payloadBytes = typeReader.readBytes(typeReader.remaining());
+    }
     Type parsedType;
-    if (failed(parseTypeImpl(typeTag, payloadBytes, parsedType)))
+    if (failed(parseTypeImpl(typeTag, payloadBytes, parsedType))) {
       return Type();
+    }
 
     // Cache the result.
     typeCache[typeIndex] = parsedType;
@@ -609,18 +653,21 @@ private:
   //   dimensions[int64_t*rank]
   LogicalResult parseTileType(EncodingReader &reader, Type &result) {
     Type elementType = readAndGetType(reader);
-    if (!elementType)
+    if (!elementType) {
       return reader.emitError() << "failed to get element type";
+    }
     // Validate that the element type is a valid scalar type for tiles.
     if (!elementType.isIntOrFloat() &&
-        !isa<cuda_tile::PointerType>(elementType))
+        !isa<cuda_tile::PointerType>(elementType)) {
       return reader.emitError() << "tile element type must be integer, float, "
                                    "or valid pointer, got: "
                                 << elementType;
+    }
     // Read dimensions (size is implicitly read by readLEVarSize)
     SmallVector<int64_t, 4> shape;
-    if (failed(reader.readLEVarSize(shape)))
+    if (failed(reader.readLEVarSize(shape))) {
       return reader.emitError() << "failed to read tile shape";
+    }
     result = cuda_tile::TileType::getChecked(
         [&]() { return reader.emitError(); }, &context,
         ArrayRef<int64_t>(shape), elementType);
@@ -637,29 +684,33 @@ private:
     uint64_t numParams, numResults;
     // Read the number of parameters (VarInt as per specification).
     if (failed(reader.readVarInt(numParams,
-                                 std::numeric_limits<uint32_t>::max() - 1)))
+                                 std::numeric_limits<uint32_t>::max() - 1))) {
       return reader.emitError() << "failed to read number of parameters";
+    }
 
     // Read parameter types
     SmallVector<Type, 4> paramTypes;
     paramTypes.reserve(numParams);
     for (uint64_t i = 0; i < numParams; ++i) {
       Type paramType = readAndGetType(reader);
-      if (!paramType)
+      if (!paramType) {
         return reader.emitError() << "failed to get parameter type";
+      }
       paramTypes.push_back(paramType);
     }
     //  Read the number of results (VarInt as per specification).
     if (failed(reader.readVarInt(numResults,
-                                 std::numeric_limits<uint32_t>::max() - 1)))
+                                 std::numeric_limits<uint32_t>::max() - 1))) {
       return reader.emitError() << "failed to read number of results";
+    }
     // Read result types
     SmallVector<Type, 4> resultTypes;
     resultTypes.reserve(numResults);
     for (uint64_t i = 0; i < numResults; ++i) {
       Type resultType = readAndGetType(reader);
-      if (!resultType)
+      if (!resultType) {
         return reader.emitError() << "failed to get result type";
+      }
       resultTypes.push_back(resultType);
     }
     result = FunctionType::get(&context, paramTypes, resultTypes);
@@ -705,8 +756,9 @@ private:
   //   pointeeTypeIndex[varint]
   LogicalResult parsePointerType(EncodingReader &reader, Type &result) {
     Type pointeeType = readAndGetType(reader);
-    if (!pointeeType)
+    if (!pointeeType) {
       return reader.emitError() << "failed to get pointer type";
+    }
     result = cuda_tile::PointerType::getChecked(
         [&]() { return reader.emitError(); }, &context, pointeeType);
     return success(result);
@@ -723,18 +775,21 @@ private:
   LogicalResult parseTensorViewType(EncodingReader &reader, Type &result) {
     // Read the element type index.
     Type elementType = readAndGetType(reader);
-    if (!elementType || !elementType.isIntOrFloat())
+    if (!elementType || !elementType.isIntOrFloat()) {
       return reader.emitError()
              << "tensor_view element type must be integer or float, got: "
              << elementType;
+    }
     // Read the shape size.
     SmallVector<int64_t, 4> shape;
-    if (failed(reader.readLEVarSize(shape)))
+    if (failed(reader.readLEVarSize(shape))) {
       return reader.emitError() << "failed to read tensor_view shape";
+    }
     // Read the strides size.
     SmallVector<int64_t, 4> strides;
-    if (failed(reader.readLEVarSize(strides)))
+    if (failed(reader.readLEVarSize(strides))) {
       return reader.emitError() << "failed to read tensor_view strides";
+    }
     result = cuda_tile::TensorViewType::getChecked(
         [&]() { return reader.emitError(); }, &context, elementType,
         ArrayRef<int64_t>(shape), ArrayRef<int64_t>(strides));
@@ -753,36 +808,43 @@ private:
   LogicalResult parsePartitionViewType(EncodingReader &reader, Type &result) {
     // Read the tile shape size.
     SmallVector<int32_t, 4> tileShape;
-    if (failed(reader.readLEVarSize(tileShape)))
+    if (failed(reader.readLEVarSize(tileShape))) {
       return reader.emitError()
              << "failed to read tile partition view tile shape";
+    }
     // Validate tile shape values.
     for (int32_t val : tileShape) {
-      if (LLVM_UNLIKELY(val == 0x7fffffff || val == (-0x7fffffff - 1)))
+      if (LLVM_UNLIKELY(val == 0x7fffffff || val == (-0x7fffffff - 1))) {
         return reader.emitError()
                << "tile shape contains unsupported value " << val;
+      }
     }
 
     // Read the tensor_view type index.
     Type tensorViewType = readAndGetType(reader);
-    if (!tensorViewType)
+    if (!tensorViewType) {
       return reader.emitError()
              << "failed to get tensor_view type for tile partition view";
+    }
     auto typedTensorViewType =
         mlir::dyn_cast<cuda_tile::TensorViewType>(tensorViewType);
-    if (!typedTensorViewType)
+    if (!typedTensorViewType) {
       return reader.emitError()
              << "invalid tensor_view type for tile partition view";
+    }
     // Read the dimension map size.
     SmallVector<int32_t, 4> dimMap;
-    if (failed(reader.readLEVarSize(dimMap)))
+    if (failed(reader.readLEVarSize(dimMap))) {
       return reader.emitError()
              << "failed to read tile partition view dimension map";
+    }
 
     PaddingValueAttr paddingValueAttr;
-    if (reader.readLE<uint8_t>())
-      if (failed(parseGenericEnumAttr(reader, context, paddingValueAttr)))
+    if (reader.readLE<uint8_t>()) {
+      if (failed(parseGenericEnumAttr(reader, context, paddingValueAttr))) {
         return failure();
+      }
+    }
 
     //  Create an attribute for the tile shape.
     auto tileShapeAttr = DenseI32ArrayAttr::get(&context, tileShape);
@@ -844,8 +906,9 @@ static LogicalResult parseTypeSection(ArrayRef<uint8_t> payload,
                                       MLIRContext &context) {
   EncodingReader reader(payload, context);
   uint64_t numTypes;
-  if (failed(reader.readVarInt(numTypes)))
+  if (failed(reader.readVarInt(numTypes))) {
     return failure();
+  }
 
   // Handle empty type table case.
   if (numTypes == 0) {
@@ -862,16 +925,19 @@ static LogicalResult parseTypeSection(ArrayRef<uint8_t> payload,
   }
 
   // Ensure 4-byte alignment for the start indices array
-  if (failed(reader.skipPadding(alignof(uint32_t))))
+  if (failed(reader.skipPadding(alignof(uint32_t)))) {
     return failure();
+  }
   // Read type start indices as a contiguous array
   const uint32_t *startIndicesPtr =
       reinterpret_cast<const uint32_t *>(reader.getCurrentPtr());
-  if (!startIndicesPtr)
+  if (!startIndicesPtr) {
     return failure();
+  }
   ArrayRef<uint32_t> typeStartIndices(startIndicesPtr, numTypes);
-  if (failed(reader.skip(numTypes * sizeof(uint32_t))))
+  if (failed(reader.skip(numTypes * sizeof(uint32_t)))) {
     return failure();
+  }
   // Initialize the lazy type table with the payload and indices
   ArrayRef<uint8_t> typeData = payload.slice(reader.currentOffset());
   types.initialize(typeData, typeStartIndices);
@@ -899,36 +965,42 @@ public:
     // The key is a combination of the expected type and the raw data blob.
     std::pair<Type, ArrayRef<uint8_t>> key = {type, data};
     auto it = cache.find(key);
-    if (it != cache.end())
+    if (it != cache.end()) {
       return it->second;
+    }
 
     // Create a reader for the constant data blob.
     EncodingReader reader(data, context);
 
     // Cast to TileType to get element type and shape info.
-    if (!type)
+    if (!type) {
       return reader.emitError() << "provided type is null";
+    }
     auto tileType = mlir::dyn_cast<cuda_tile::TileType>(type);
-    if (!tileType || !tileType.getElementType().isIntOrFloat())
+    if (!tileType || !tileType.getElementType().isIntOrFloat()) {
       return reader.emitError()
              << "expect Cuda Tile integer or float type but got: " << tileType;
+    }
 
     // Read the size of the raw data buffer.
     uint64_t rawDataSize;
-    if (failed(reader.readVarInt(rawDataSize)))
+    if (failed(reader.readVarInt(rawDataSize))) {
       return reader.emitError() << "failed to read the size of the data buffer";
+    }
 
     // Read the raw byte data.
     ArrayRef<uint8_t> rawUint8Data;
-    if (failed(reader.readBytes(rawDataSize, rawUint8Data)))
+    if (failed(reader.readBytes(rawDataSize, rawUint8Data))) {
       return reader.emitError() << "failed to read the raw byte data";
+    }
 
     // Convert ArrayRef<uint8_t> to ArrayRef<char>.
     ArrayRef<char> rawData(reinterpret_cast<const char *>(rawUint8Data.data()),
                            rawUint8Data.size());
     // Validate the buffer size and format.
-    if (!DenseElementsAttr::isValidRawBuffer(tileType, rawData))
+    if (!DenseElementsAttr::isValidRawBuffer(tileType, rawData)) {
       return reader.emitError() << "failed to validate buffer size and format";
+    }
 
     DenseElementsAttr attr = nullptr;
     // Handle endianness conversion.
@@ -943,8 +1015,9 @@ public:
       attr = DenseElementsAttr::getFromRawBuffer(tileType, rawData);
     }
 
-    if (attr)
+    if (attr) {
       cache.insert({key, attr});
+    }
     return attr;
   }
 
@@ -961,27 +1034,33 @@ parseConstantSection(ArrayRef<uint8_t> payload,
   EncodingReader reader(payload, context);
   uint64_t numConstants;
   if (failed(reader.readVarInt(numConstants,
-                               std::numeric_limits<uint32_t>::max() - 1)))
+                               std::numeric_limits<uint32_t>::max() - 1))) {
     return failure();
+  }
   // Handle empty constant section case
-  if (numConstants == 0)
+  if (numConstants == 0) {
     return success();
+  }
   // Ensure 8-byte alignment for the start indices array
-  if (failed(reader.skipPadding(alignof(uint64_t))))
+  if (failed(reader.skipPadding(alignof(uint64_t)))) {
     return failure();
+  }
   // Check if we have enough data to read the indices
-  if (reader.remaining() / sizeof(uint64_t) < numConstants)
+  if (reader.remaining() / sizeof(uint64_t) < numConstants) {
     return reader.emitError() << "insufficient data for constant indices";
+  }
 
   // Read constant start indices as a contiguous array
   const uint64_t *startIndicesPtr =
       reinterpret_cast<const uint64_t *>(reader.getCurrentPtr());
-  if (!startIndicesPtr)
+  if (!startIndicesPtr) {
     return failure();
+  }
 
   ArrayRef<uint64_t> constantStartIndices(startIndicesPtr, numConstants);
-  if (failed(reader.skip(constantStartIndices.size() * sizeof(uint64_t))))
+  if (failed(reader.skip(constantStartIndices.size() * sizeof(uint64_t)))) {
     return failure();
+  }
   ArrayRef<uint8_t> constantData = payload.slice(reader.currentOffset());
   // Populate constants based on constantStartIndices
   constants.reserve(numConstants);
@@ -989,16 +1068,18 @@ parseConstantSection(ArrayRef<uint8_t> payload,
     uint64_t start = constantStartIndices[i];
     uint64_t end = (i + 1 < numConstants) ? constantStartIndices[i + 1]
                                           : constantData.size();
-    if (end < start)
+    if (end < start) {
       return reader.emitError()
              << "invalid constant start indices: end (" << end
              << ") is less than start (" << start << ") for constant " << i;
+    }
     size_t constantSize = end - start;
-    if (constantSize + start > constantData.size())
+    if (constantSize + start > constantData.size()) {
       return reader.emitError()
              << "constant " << i << " extends beyond available data: "
              << "size=" << constantSize << ", start=" << start
              << ", total data size=" << constantData.size();
+    }
     constants.push_back(constantData.slice(start, constantSize));
   }
   return success();
@@ -1025,25 +1106,32 @@ public:
     template <typename T>
     T next() {
       // Check if the index is reserved for special debug info attributes.
-      if (opIndex == static_cast<uint64_t>(Bytecode::DebugReserved::UnknownLoc))
+      if (opIndex ==
+          static_cast<uint64_t>(Bytecode::DebugReserved::UnknownLoc)) {
         return dyn_cast<T>(UnknownLoc::get(&reader.context));
+      }
 
       // Adjust the index to account for reserved indices.
       auto actualOpIndex =
           opIndex - static_cast<uint64_t>(Bytecode::DebugReserved::SIZE);
 
       // Calculate the offset for the current operation index.
-      if (actualOpIndex >= reader.diIndexOffsets.size())
+      if (actualOpIndex >= reader.diIndexOffsets.size()) {
         return T();
+      }
       auto offset = reader.diIndexOffsets[actualOpIndex];
 
       // Validate size to prevent excessive memory allocation.
-      if (reader.diIndices.size() > (std::numeric_limits<uint32_t>::max() - 1))
+      if (reader.diIndices.size() >
+          (std::numeric_limits<uint32_t>::max() - 1)) {
         return T();
-      if (offset > (std::numeric_limits<uint32_t>::max() - 1))
+      }
+      if (offset > (std::numeric_limits<uint32_t>::max() - 1)) {
         return T();
-      if (offset + opIndexOffset >= reader.diIndices.size())
+      }
+      if (offset + opIndexOffset >= reader.diIndices.size()) {
         return T();
+      }
       offset += opIndexOffset++;
 
       // Return the next debug info attribute for the current operation.
@@ -1073,16 +1161,19 @@ private:
   template <typename T>
   T getDebugInfo(uint64_t diIndex) {
     // Check if the index is reserved for special debug info attributes.
-    if (diIndex == static_cast<uint64_t>(Bytecode::DebugReserved::UnknownLoc))
+    if (diIndex == static_cast<uint64_t>(Bytecode::DebugReserved::UnknownLoc)) {
       return dyn_cast<T>(UnknownLoc::get(&context));
+    }
 
     // Adjust the index to account for reserved indices.
     diIndex -= static_cast<uint64_t>(Bytecode::DebugReserved::SIZE);
 
-    if (diIndex >= diCache.size())
+    if (diIndex >= diCache.size()) {
       return T();
-    if (diCache[diIndex])
+    }
+    if (diCache[diIndex]) {
       return dyn_cast_or_null<T>(diCache[diIndex]);
+    }
 
     return dyn_cast_or_null<T>(getDebugInfo(diIndex));
   }
@@ -1091,47 +1182,54 @@ private:
   template <typename T>
   T readAndGetDebugInfo(EncodingReader &reader) {
     uint64_t diIndex;
-    if (failed(reader.readVarInt(diIndex)))
+    if (failed(reader.readVarInt(diIndex))) {
       return T();
+    }
 
     return getDebugInfo<T>(diIndex);
   }
 
   Attribute getDebugInfo(uint64_t diIndex) {
     // Check for bounds
-    if (diIndex >= diCache.size())
+    if (diIndex >= diCache.size()) {
       return Attribute();
-    if (diCache[diIndex])
+    }
+    if (diCache[diIndex]) {
       return diCache[diIndex];
+    }
 
     uint32_t start = diOffsets[diIndex];
     uint32_t end = (diIndex + 1 < diOffsets.size()) ? diOffsets[diIndex + 1]
                                                     : diData.size();
 
-    if (end < start || end > diData.size())
+    if (end < start || end > diData.size()) {
       return Attribute();
+    }
 
     // Check for recursion.
-    if (currentlyParsing.count(diIndex))
+    if (currentlyParsing.count(diIndex)) {
       return Attribute();
+    }
     // Mark this index as currently being parsed.
     currentlyParsing.insert(diIndex);
-    auto removeIndex =
-        llvm::make_scope_exit([&] { currentlyParsing.erase(diIndex); });
+    llvm::scope_exit removeIndex([&] { currentlyParsing.erase(diIndex); });
 
     // Slice the payload to get the data for this debug info attribute.
     EncodingReader diReader(diData.slice(start, end - start), context);
     uint64_t diTag;
-    if (failed(diReader.readVarInt(diTag)))
+    if (failed(diReader.readVarInt(diTag))) {
       return nullptr;
+    }
     ArrayRef<uint8_t> diData;
-    if (diReader.remaining() > 0)
+    if (diReader.remaining() > 0) {
       diData = diReader.readBytes(diReader.remaining());
+    }
 
     // Parse the debug info attribute based on the tag.
     Attribute diParsed;
-    if (failed(parseDebugInfo(diTag, diData, diParsed)))
+    if (failed(parseDebugInfo(diTag, diData, diParsed))) {
       return Attribute();
+    }
 
     // Cache the result.
     diCache[diIndex] = diParsed;
@@ -1144,9 +1242,10 @@ private:
   LogicalResult parseDICompileUnit(EncodingReader &reader,
                                    Attribute &diCompileUnit) {
     auto file = readAndGetDebugInfo<DIFileAttr>(reader);
-    if (!file)
+    if (!file) {
       return reader.emitError()
              << "failed to read file attribute when parsing DICompileUnitAttr";
+    }
 
     diCompileUnit = DICompileUnitAttr::get(&context, file);
     return success();
@@ -1158,15 +1257,17 @@ private:
   //   directoryIndex[varint] - StringAttr
   LogicalResult parseDIFile(EncodingReader &reader, Attribute &diFile) {
     StringRef nameStr;
-    if (failed(reader.readAndGetString(nameStr)))
+    if (failed(reader.readAndGetString(nameStr))) {
       return reader.emitError()
              << "failed to read file name attribute when parsing DIFileAttr";
+    }
     StringAttr name = StringAttr::get(&context, nameStr);
 
     StringRef directoryStr;
-    if (failed(reader.readAndGetString(directoryStr)))
+    if (failed(reader.readAndGetString(directoryStr))) {
       return reader.emitError()
              << "failed to read directory attribute when parsing DIFileAttr";
+    }
     StringAttr directory = StringAttr::get(&context, directoryStr);
 
     diFile = DIFileAttr::get(&context, name, directory);
@@ -1182,24 +1283,28 @@ private:
   LogicalResult parseDILexicalBlock(EncodingReader &reader,
                                     Attribute &diLexicalBlock) {
     auto scope = readAndGetDebugInfo<DILocalScopeAttr>(reader);
-    if (!scope)
+    if (!scope) {
       return reader.emitError() << "failed to read scope attribute when "
                                    "parsing DILexicalBlockAttr";
+    }
 
     auto file = readAndGetDebugInfo<DIFileAttr>(reader);
-    if (!file)
+    if (!file) {
       return reader.emitError()
              << "failed to read file attribute when parsing DILexicalBlockAttr";
+    }
 
     uint64_t line;
-    if (failed(reader.readVarInt(line)))
+    if (failed(reader.readVarInt(line))) {
       return reader.emitError()
              << "failed to read line number when parsing DILexicalBlockAttr";
+    }
 
     uint64_t column;
-    if (failed(reader.readVarInt(column)))
+    if (failed(reader.readVarInt(column))) {
       return reader.emitError()
              << "failed to read column number when parsing DILexicalBlockAttr";
+    }
 
     diLexicalBlock =
         DILexicalBlockAttr::get(&context, scope, file, line, column);
@@ -1214,25 +1319,29 @@ private:
   //   columnNumber[varint] - unsigned
   LogicalResult parseDILoc(EncodingReader &reader, Attribute &diLoc) {
     auto scope = readAndGetDebugInfo<DILocalScopeAttr>(reader);
-    if (!scope)
+    if (!scope) {
       return reader.emitError()
              << "failed to read scope attribute when parsing DILocAttr";
+    }
 
     StringRef filenameStr;
-    if (failed(reader.readAndGetString(filenameStr)))
+    if (failed(reader.readAndGetString(filenameStr))) {
       return reader.emitError() << "failed to read file name attribute when "
                                    "parsing FileLineColLoc";
+    }
     StringAttr filename = StringAttr::get(&context, filenameStr);
 
     uint64_t line;
-    if (failed(reader.readVarInt(line)))
+    if (failed(reader.readVarInt(line))) {
       return reader.emitError()
              << "failed to read line number when parsing FileLineColLoc";
+    }
 
     uint64_t column;
-    if (failed(reader.readVarInt(column)))
+    if (failed(reader.readVarInt(column))) {
       return reader.emitError()
              << "failed to read column number when parsing FileLineColLoc";
+    }
 
     auto fileLineCol = FileLineColLoc::get(&context, filename, line, column);
     diLoc = DILocAttr::get(&context, fileLineCol, scope);
@@ -1250,36 +1359,42 @@ private:
   LogicalResult parseDISubprogram(EncodingReader &reader,
                                   Attribute &diSubprogram) {
     auto file = readAndGetDebugInfo<DIFileAttr>(reader);
-    if (!file)
+    if (!file) {
       return reader.emitError()
              << "failed to read file attribute when parsing DISubprogramAttr";
+    }
 
     uint64_t line;
-    if (failed(reader.readVarInt(line)))
+    if (failed(reader.readVarInt(line))) {
       return reader.emitError()
              << "failed to read line number when parsing DISubprogramAttr";
+    }
 
     StringRef nameStr;
-    if (failed(reader.readAndGetString(nameStr)))
+    if (failed(reader.readAndGetString(nameStr))) {
       return reader.emitError()
              << "failed to read name attribute when parsing DISubprogramAttr";
+    }
     StringAttr name = StringAttr::get(&context, nameStr);
 
     StringRef linkageNameStr;
-    if (failed(reader.readAndGetString(linkageNameStr)))
+    if (failed(reader.readAndGetString(linkageNameStr))) {
       return reader.emitError() << "failed to read linkage name attribute when "
                                    "parsing DISubprogramAttr";
+    }
     StringAttr linkageName = StringAttr::get(&context, linkageNameStr);
 
     auto compileUnit = readAndGetDebugInfo<DICompileUnitAttr>(reader);
-    if (!compileUnit)
+    if (!compileUnit) {
       return reader.emitError() << "failed to read compile unit attribute when "
                                    "parsing DISubprogramAttr";
+    }
 
     uint64_t scopeLine;
-    if (failed(reader.readVarInt(scopeLine)))
+    if (failed(reader.readVarInt(scopeLine))) {
       return reader.emitError() << "failed to read scope line number when "
                                    "parsing DISubprogramAttr";
+    }
 
     diSubprogram = DISubprogramAttr::get(&context, file, line, name,
                                          linkageName, compileUnit, scopeLine);
@@ -1292,14 +1407,16 @@ private:
   //  diCallerIndex[varint] - LocationAttr
   LogicalResult parseCallSite(EncodingReader &reader, Attribute &callSite) {
     auto callee = readAndGetDebugInfo<LocationAttr>(reader);
-    if (!callee)
+    if (!callee) {
       return reader.emitError()
              << "failed to read callee attribute when parsing CallSiteLoc";
+    }
 
     auto caller = readAndGetDebugInfo<LocationAttr>(reader);
-    if (!caller)
+    if (!caller) {
       return reader.emitError()
              << "failed to read caller attribute when parsing CallSiteLoc";
+    }
 
     callSite = CallSiteLoc::get(callee, caller);
     return success();
@@ -1307,7 +1424,7 @@ private:
 
   // unknown =:
   //   DebugTag[Unknown]
-  LogicalResult parseUnknown(EncodingReader &reader, Attribute &unknown) {
+  LogicalResult parseUnknown(EncodingReader &, Attribute &unknown) {
     unknown = UnknownLoc::get(&context);
     return success();
   }
@@ -1383,15 +1500,17 @@ class InstructionParser {
     OperationState state(loc, opNameStr, operands, resultTypes, attributes);
 
     // Add parsed regions to the operation state.
-    for (auto &region_ptr : parsedRegions)
+    for (auto &region_ptr : parsedRegions) {
       state.addRegion(std::move(region_ptr));
+    }
 
     Operation *op = builder.create(state);
     // Operation creation using OperationState can fail if verification fails.
     // Emit an error noting the failure.
-    if (!op)
+    if (!op) {
       return ::emitError(loc) << "failed to create operation '" << opNameStr
                               << "'due to verification error.";
+    }
     // Add results to the value index list.
     llvm::append_range(valueIndexList, op->getResults());
 
@@ -1406,22 +1525,25 @@ class InstructionParser {
                 ArrayRef<Value> valueIndexList, SmallVectorImpl<Value> &results,
                 std::optional<uint64_t> numOperandsToRead = std::nullopt) {
     uint64_t numOperands;
-    if (numOperandsToRead.has_value())
+    if (numOperandsToRead.has_value()) {
       numOperands = *numOperandsToRead;
-    else if (failed(reader.readVarInt(
-                 numOperands, std::numeric_limits<uint32_t>::max() - 1)))
+    } else if (failed(reader.readVarInt(
+                   numOperands, std::numeric_limits<uint32_t>::max() - 1))) {
       return reader.emitError() << "failed to read operand count";
+    }
 
     results.reserve(numOperands);
     for (uint64_t i = 0; i < numOperands; ++i) {
       uint64_t operandIdx;
-      if (failed(reader.readVarInt(operandIdx)))
+      if (failed(reader.readVarInt(operandIdx))) {
         return reader.emitError() << "failed to read operand index " << i;
-      if (operandIdx >= valueIndexList.size())
+      }
+      if (operandIdx >= valueIndexList.size()) {
         return reader.emitError()
                << "operand index " << operandIdx
                << " out of bounds (size=" << valueIndexList.size()
                << ") for operand " << i;
+      }
       results.push_back(valueIndexList[operandIdx]);
     }
     return success();
@@ -1436,8 +1558,9 @@ class InstructionParser {
              DebugInfoReader::Iterator &diIterator, MLIRContext &context) {
     // Read number of block arguments
     uint64_t numBlockArgs;
-    if (failed(reader.readVarInt(numBlockArgs)))
+    if (failed(reader.readVarInt(numBlockArgs))) {
       return reader.emitError() << "failed to read block argument count.";
+    }
 
     // Record the current size of valueIndexList. Block arguments and operations
     // defined within this block will be added, and then the list will be
@@ -1447,17 +1570,19 @@ class InstructionParser {
     // Read argument types and create block arguments in the targetBlock.
     for (uint64_t i = 0; i < numBlockArgs; ++i) {
       Type argType = types.readAndGetType(reader);
-      if (!argType)
+      if (!argType) {
         return reader.emitError()
                << "failed to read block argument type: " << i;
+      }
       Value arg = targetBlock.addArgument(argType, loc);
       valueIndexList.push_back(arg);
     }
 
     // Read number of operations in the block.
     uint64_t numOps;
-    if (failed(reader.readVarInt(numOps)))
+    if (failed(reader.readVarInt(numOps))) {
       return reader.emitError() << "failed to read block operation count.";
+    }
 
     // Set insertion point to the end of the targetBlock for parsing operations.
     OpBuilder::InsertionGuard guard(builder);
@@ -1467,20 +1592,22 @@ class InstructionParser {
     for (uint64_t i = 0; i < numOps; ++i) {
       if (failed(InstructionParser::parseOperation(
               reader, builder, valueIndexList, constants, types, constCache,
-              diIterator, context)))
+              diIterator, context))) {
         return reader.emitError()
                << "failed to parse operation " << i << " in block.";
+      }
     }
 
     // Validate block structure: ensure block has terminator.
     if (!targetBlock.empty()) {
       Operation *lastOp = &targetBlock.back();
-      if (!lastOp->hasTrait<OpTrait::IsTerminator>())
+      if (!lastOp->hasTrait<OpTrait::IsTerminator>()) {
         return reader.emitError()
                << "invalid block structure: block is expected to have a "
                   "terminator "
                << "operation, but the last operation '" << lastOp->getName()
                << "' is not a terminator.";
+      }
     } else {
       return reader.emitError()
              << "invalid block structure: block is expected to have a "
@@ -1503,8 +1630,9 @@ class InstructionParser {
               Region &regionToPopulate) {
     // Read number of blocks in the region.
     uint64_t numBlocks;
-    if (failed(reader.readVarInt(numBlocks)))
+    if (failed(reader.readVarInt(numBlocks))) {
       return reader.emitError() << "failed to read region block count";
+    }
 
     // Parse each block in the region.
     for (uint64_t i = 0; i < numBlocks; ++i) {
@@ -1513,9 +1641,10 @@ class InstructionParser {
       // with values defined in the parent scope.
       if (failed(parseBlock(reader, builder, loc, currentBlock,
                             parentValueIndexList, constants, types, constCache,
-                            diIterator, context)))
+                            diIterator, context))) {
         return reader.emitError()
                << "failed to parse block " << i << " in region.";
+      }
     }
 
     return success();
@@ -1531,14 +1660,16 @@ class InstructionParser {
     // Small values are encoded using a single byte.
     if (bitWidth <= 8) {
       uint8_t value;
-      if (failed(reader.readLE(value)))
+      if (failed(reader.readLE(value))) {
         return reader.emitError()
                << "failed to read byte for APInt (<= 8 bits).";
+      }
       // Validate that the value fits in the specified bit width.
-      if (!llvm::isUIntN(bitWidth, value))
+      if (!llvm::isUIntN(bitWidth, value)) {
         return reader.emitError()
                << "value " << static_cast<unsigned>(value)
                << " does not fit in " << bitWidth << " bits.";
+      }
       apIntResult = APInt(bitWidth, value);
       return success();
     }
@@ -1546,13 +1677,15 @@ class InstructionParser {
     // Large values up to 64 bits are encoded using a single varint.
     if (bitWidth <= 64) {
       uint64_t value;
-      if (failed(reader.readSignedVarInt(value)))
+      if (failed(reader.readSignedVarInt(value))) {
         return reader.emitError()
                << "failed to read signed varint for APInt (<= 64 bits).";
+      }
       // Validate that the value fits in the specified bit width.
-      if (!llvm::isUIntN(bitWidth, value))
+      if (!llvm::isUIntN(bitWidth, value)) {
         return reader.emitError() << "value " << value << " does not fit in "
                                   << bitWidth << " bits";
+      }
       apIntResult = APInt(bitWidth, value);
       return success();
     }
@@ -1560,24 +1693,29 @@ class InstructionParser {
     // Otherwise, for really big values we encode the array of active words in
     // the value.
     uint64_t numActiveWords;
-    if (failed(reader.readVarInt(numActiveWords)))
+    if (failed(reader.readVarInt(numActiveWords))) {
       return reader.emitError()
              << "failed to read numActiveWords for APInt (> 64 bits).";
+    }
     // Validate that numActiveWords makes sense for the given bitWidth.
     uint64_t expectedMaxWords = (bitWidth + 63) / 64;
-    if (numActiveWords > expectedMaxWords)
+    if (numActiveWords > expectedMaxWords) {
       return reader.emitError()
              << "numActiveWords " << numActiveWords << " exceeds maximum of "
              << expectedMaxWords << " for " << bitWidth << " bit";
-    if (numActiveWords == 0)
+    }
+    if (numActiveWords == 0) {
       return reader.emitError()
              << "numActiveWords cannot be zero for multi-word APInt";
+    }
 
     SmallVector<uint64_t, 4> words(numActiveWords);
-    for (uint64_t i = 0; i < numActiveWords; ++i)
-      if (failed(reader.readSignedVarInt(words[i])))
+    for (uint64_t i = 0; i < numActiveWords; ++i) {
+      if (failed(reader.readSignedVarInt(words[i]))) {
         return reader.emitError()
                << "failed to read word " << i << " for multi-word APInt.";
+      }
+    }
     apIntResult = APInt(bitWidth, words);
     return success();
   }
@@ -1592,28 +1730,32 @@ class InstructionParser {
                                                   Attribute &result) {
     if (auto intType = dyn_cast_or_null<IntegerType>(expectedType)) {
       unsigned width = intType.getWidth();
-      if (width == 0 || width > 64)
+      if (width == 0 || width > 64) {
         return reader.emitError()
                << "unsupported width for inline integer attribute: " << width;
+      }
 
       if (width == 1) {
         uint8_t byte;
-        if (failed(reader.readLE(byte)))
+        if (failed(reader.readLE(byte))) {
           return reader.emitError()
                  << "failed to read byte for inline bool (i1)";
+        }
         result = BoolAttr::get(&context, byte != 0);
         return success();
       }
 
       uint64_t value;
-      if (failed(reader.readVarInt(value)))
+      if (failed(reader.readVarInt(value))) {
         return reader.emitError()
                << "failed to read VarInt for inline integer (width=" << width
                << ")";
+      }
       // Validate that the value fits in the specified bit width.
-      if (!llvm::isUIntN(width, value))
+      if (!llvm::isUIntN(width, value)) {
         return reader.emitError()
                << "value " << value << " does not fit in " << width << " bits";
+      }
 
       APInt apValue(width, value);
       result = IntegerAttr::get(expectedType, apValue);
@@ -1621,8 +1763,9 @@ class InstructionParser {
     } else if (auto floatType = dyn_cast_or_null<FloatType>(expectedType)) {
       APInt parsedAPInt;
       unsigned bitWidth = APFloat::getSizeInBits(floatType.getFloatSemantics());
-      if (failed(parseAPInt(reader, bitWidth, parsedAPInt)))
+      if (failed(parseAPInt(reader, bitWidth, parsedAPInt))) {
         return failure();
+      }
       APFloat apFloat(floatType.getFloatSemantics(), parsedAPInt);
       result = FloatAttr::get(floatType, apFloat);
       return success();
@@ -1638,15 +1781,18 @@ class InstructionParser {
       ArrayRef<ArrayRef<uint8_t>> constants, DenseElementsAttrCache &constCache,
       Attribute &result) {
     uint64_t constantIndex;
-    if (failed(reader.readVarInt(constantIndex)))
+    if (failed(reader.readVarInt(constantIndex))) {
       return reader.emitError() << "failed to read constant index";
-    if (constantIndex >= constants.size())
+    }
+    if (constantIndex >= constants.size()) {
       return reader.emitError()
              << "constant index " << constantIndex << " out of bounds";
+    }
     FailureOr<Attribute> attributeOrFailure =
         constCache.getOrCreate(expectedType, constants[constantIndex], context);
-    if (failed(attributeOrFailure))
+    if (failed(attributeOrFailure)) {
       return failure();
+    }
     result = *attributeOrFailure;
     return success();
   }
@@ -1656,12 +1802,14 @@ class InstructionParser {
                                       MLIRContext &context,
                                       cuda_tile::DivByAttr &nativeValue) {
     uint64_t divisor;
-    if (failed(reader.readVarInt(divisor)))
+    if (failed(reader.readVarInt(divisor))) {
       return reader.emitError() << "failed to read divisor for DivByAttr";
+    }
 
     uint8_t flagsByte;
-    if (failed(reader.readLE(flagsByte)))
+    if (failed(reader.readLE(flagsByte))) {
       return reader.emitError() << "failed to read flags byte for DivByAttr";
+    }
 
     bool has_every = (flagsByte & 0x01) != 0;
     bool has_along = (flagsByte & 0x02) != 0;
@@ -1669,18 +1817,20 @@ class InstructionParser {
     std::optional<int64_t> every_opt;
     if (has_every) {
       uint64_t val;
-      if (failed(reader.readSignedVarInt(val)))
+      if (failed(reader.readSignedVarInt(val))) {
         return reader.emitError()
                << "failed to read value for 'every' in DivByAttr";
+      }
       every_opt = val;
     }
 
     std::optional<int64_t> along_opt;
     if (has_along) {
       uint64_t val;
-      if (failed(reader.readSignedVarInt(val)))
+      if (failed(reader.readSignedVarInt(val))) {
         return reader.emitError()
                << "failed to read value for 'along' in DivByAttr";
+      }
       along_opt = val;
     }
 
@@ -1709,8 +1859,9 @@ class InstructionParser {
       // UnitAttr presence is stored as inline bool (i1).
       BoolAttr presentAttr;
       if (failed(parseScalarAttributeInline(
-              reader, context, IntegerType::get(&context, 1), presentAttr)))
+              reader, context, IntegerType::get(&context, 1), presentAttr))) {
         return failure();
+      }
       // Convert the parsed BoolAttr to UnitAttr (or nullptr if false)
       nativeValue = presentAttr.getValue() ? UnitAttr::get(&context) : nullptr;
       return success();
@@ -1721,81 +1872,94 @@ class InstructionParser {
     } else if constexpr (std::is_same_v<T, IntegerAttr>) {
       if (!expectedType) {
         expectedType = types.readAndGetType(reader);
-        if (!isa_and_nonnull<IntegerType>(expectedType))
+        if (!isa_and_nonnull<IntegerType>(expectedType)) {
           return reader.emitError()
                  << "failed to read valid IntegerType for IntegerAttr";
+        }
       }
       if (failed(parseScalarAttributeInline(reader, context, expectedType,
-                                            parsedAttr)))
+                                            parsedAttr))) {
         return failure();
+      }
       nativeValue = dyn_cast_or_null<IntegerAttr>(parsedAttr);
-      if (!nativeValue)
+      if (!nativeValue) {
         return reader.emitError()
                << "failed to cast parsed attribute to IntegerAttr";
+      }
       return success();
     } else if constexpr (std::is_same_v<T, FloatAttr>) {
       if (!expectedType) {
         expectedType = types.readAndGetType(reader);
-        if (!isa_and_nonnull<FloatType>(expectedType))
+        if (!isa_and_nonnull<FloatType>(expectedType)) {
           return reader.emitError()
                  << "failed to read valid FloatType for FloatAttr";
+        }
       }
       if (failed(parseScalarAttributeInline(reader, context, expectedType,
-                                            parsedAttr)))
+                                            parsedAttr))) {
         return failure();
+      }
       nativeValue = dyn_cast_or_null<FloatAttr>(parsedAttr);
-      if (!nativeValue)
+      if (!nativeValue) {
         return reader.emitError()
                << "failed to cast parsed attribute to FloatAttr";
+      }
       return success();
     } else if constexpr (std::is_same_v<T, TypeAttr>) {
       // TypeAttr is stored as an index into the type table.
       Type referencedType = types.readAndGetType(reader);
-      if (!referencedType)
+      if (!referencedType) {
         return reader.emitError()
                << "failed to get referenced type for TypeAttr";
+      }
       nativeValue = TypeAttr::get(referencedType);
       return success();
     } else if constexpr (std::is_same_v<T, StringAttr>) {
       // StringAttr is stored as an index into the string table.
       StringRef strRef;
-      if (failed(reader.readAndGetString(strRef)))
+      if (failed(reader.readAndGetString(strRef))) {
         return reader.emitError() << "failed to read StringAttr.";
+      }
       nativeValue = StringAttr::get(&context, strRef);
       return success();
     } else if constexpr (std::is_same_v<T, DenseI32ArrayAttr>) {
       SmallVector<int32_t, 4> values;
-      if (failed(reader.readLEVarSize(values)))
+      if (failed(reader.readLEVarSize(values))) {
         return reader.emitError() << "failed to read DenseI32ArrayAttr values.";
+      }
       // Validate array values.
-      for (int32_t val : values)
+      for (int32_t val : values) {
         if (LLVM_UNLIKELY(val == 0x7fffffff || val == (-0x7fffffff - 1))) {
           return reader.emitError()
                  << "array contains unsupported value " << val;
         }
+      }
 
       nativeValue = DenseI32ArrayAttr::get(&context, values);
       return success();
     } else if constexpr (std::is_same_v<T, DenseI64ArrayAttr>) {
       SmallVector<int64_t, 4> values;
-      if (failed(reader.readLEVarSize(values)))
+      if (failed(reader.readLEVarSize(values))) {
         return reader.emitError() << "failed to read DenseI64ArrayAttr values.";
+      }
       // Validate array values.
-      for (int64_t val : values)
+      for (int64_t val : values) {
         if (LLVM_UNLIKELY(val == 0x7fffffffffffffffLL ||
                           val == (-0x7fffffffffffffffLL - 1))) {
           return reader.emitError()
                  << "array contains unsupported value " << val;
         }
+      }
 
       nativeValue = DenseI64ArrayAttr::get(&context, values);
       return success();
     } else if constexpr (std::is_same_v<std::decay_t<T>,
                                         mlir::FlatSymbolRefAttr>) {
       StringRef strRef;
-      if (failed(reader.readAndGetString(strRef)))
+      if (failed(reader.readAndGetString(strRef))) {
         return reader.emitError()
                << "failed to read string for FlatSymbolRefAttr.";
+      }
       nativeValue = mlir::FlatSymbolRefAttr::get(&context, strRef);
       return success();
     } else if constexpr (is_cuda_tile_enum_attr<T>::value) {
@@ -1805,20 +1969,23 @@ class InstructionParser {
       if (!expectedType) {
         Type denseMLIRType = types.readAndGetType(reader);
         expectedType = dyn_cast_or_null<TileType>(denseMLIRType);
-        if (!expectedType)
+        if (!expectedType) {
           return reader.emitError() << "failed to read valid MLIR Type for "
                                        "self-contained DenseElementsAttr";
+        }
       }
 
       if (std::is_same_v<T, DenseTypedElementsAttr>) {
         if (failed(parseConstantAttrIndex(reader, context, expectedType,
-                                          constants, constCache, parsedAttr)))
+                                          constants, constCache, parsedAttr))) {
           return failure();
+        }
         nativeValue = dyn_cast_or_null<T>(parsedAttr);
-        if (!nativeValue)
+        if (!nativeValue) {
           return reader.emitError() << "parsed constant attribute is not the "
                                        "expected type derived "
                                        "from DenseElementsAttr";
+        }
       } else {
         return reader.emitError() << "unknown DenseElementsAttr based Attr";
       }
@@ -1828,42 +1995,49 @@ class InstructionParser {
                              mlir::cuda_tile::AssumePredicateAttrInterface>) {
       Attribute parsedAttr;
       if (failed(parseSelfContainedOpAttribute(
-              reader, context, types, constants, constCache, parsedAttr)))
+              reader, context, types, constants, constCache, parsedAttr))) {
         return reader.emitError() << "failed to parse self-contained attribute "
                                      "for AssumePredicateAttrInterface";
+      }
       nativeValue = dyn_cast_or_null<T>(parsedAttr);
-      if (!nativeValue)
+      if (!nativeValue) {
         return reader.emitError() << "failed to cast parsed attribute to "
                                      "AssumePredicateAttrInterface";
+      }
       return success();
     } else if constexpr (std::is_same_v<T, cuda_tile::DivByAttr>) {
       return parseDivByAttr(reader, context, nativeValue);
     } else if constexpr (std::is_same_v<T, cuda_tile::SameElementsAttr>) {
       DenseI64ArrayAttr valuesAttr;
       if (failed(parseOpAttribute(reader, context, types, constants, constCache,
-                                  valuesAttr)))
+                                  valuesAttr))) {
         return reader.emitError()
                << "failed to read DenseI64ArrayAttr for SameElementsAttr";
+      }
       nativeValue = cuda_tile::SameElementsAttr::get(&context, valuesAttr);
       return success();
     } else if constexpr (std::is_same_v<T, ArrayAttr>) {
       // ArrayAttr parsing.
       uint64_t arraySize;
       if (failed(reader.readVarInt(arraySize,
-                                   std::numeric_limits<uint32_t>::max() - 1)))
+                                   std::numeric_limits<uint32_t>::max() - 1))) {
         return reader.emitError() << "failed to read size for ArrayAttr.";
+      }
 
       SmallVector<Attribute> elements;
       elements.reserve(arraySize);
       for (uint64_t i = 0; i < arraySize; ++i) {
         Attribute parsedElement;
-        if (failed(parseSelfContainedOpAttribute(
-                reader, context, types, constants, constCache, parsedElement)))
+        if (failed(parseSelfContainedOpAttribute(reader, context, types,
+                                                 constants, constCache,
+                                                 parsedElement))) {
           return reader.emitError()
                  << "failed to parse ArrayAttr element " << i;
-        if (!isa_and_nonnull<TypedAttr>(parsedElement))
+        }
+        if (!isa_and_nonnull<TypedAttr>(parsedElement)) {
           return reader.emitError()
                  << "ArrayAttr contains non-TypedAttr elements or is null";
+        }
         elements.push_back(parsedElement);
       }
       nativeValue = ArrayAttr::get(&context, elements);
@@ -1871,65 +2045,75 @@ class InstructionParser {
     } else if constexpr (std::is_same_v<T, DictionaryAttr>) {
       uint64_t dictSize;
       if (failed(reader.readVarInt(dictSize,
-                                   std::numeric_limits<uint32_t>::max() - 1)))
+                                   std::numeric_limits<uint32_t>::max() - 1))) {
         return reader.emitError() << "failed to read size for DictionaryAttr";
+      }
       SmallVector<NamedAttribute> elements;
       elements.reserve(dictSize);
       for (uint64_t i = 0; i < dictSize; ++i) {
         StringRef key;
-        if (failed(reader.readAndGetString(key)))
+        if (failed(reader.readAndGetString(key))) {
           return reader.emitError()
                  << "failed to read key for DictionaryAttr element " << i;
+        }
         // Validate that the attribute name is not empty.
-        if (key.empty())
+        if (key.empty()) {
           return reader.emitError()
                  << "invalid empty attribute name for DictionaryAttr element "
                  << i;
+        }
         Attribute value;
-        if (failed(parseSelfContainedOpAttribute(reader, context, types,
-                                                 constants, constCache, value)))
+        if (failed(parseSelfContainedOpAttribute(
+                reader, context, types, constants, constCache, value))) {
           return reader.emitError()
                  << "failed to parse DictionaryAttr value for key " << key;
+        }
         elements.emplace_back(StringAttr::get(&context, key), value);
       }
-      if (auto duplicate = DictionaryAttr::findDuplicate(elements, false))
+      if (auto duplicate = DictionaryAttr::findDuplicate(elements, false)) {
         return reader.emitError()
                << "failed to parse DictionaryAttr, duplicate key found: "
                << duplicate.value().getName();
+      }
       nativeValue = DictionaryAttr::get(&context, elements);
       return success();
     } else if constexpr (std::is_same_v<T, cuda_tile::OptimizationHintsAttr>) {
       // OptimizationHintsAttr contains a DictionaryAttr.
       DictionaryAttr dictAttr;
       if (failed(parseOpAttribute(reader, context, types, constants, constCache,
-                                  dictAttr, expectedType)))
+                                  dictAttr, expectedType))) {
         return failure();
+      }
       nativeValue = cuda_tile::OptimizationHintsAttr::getChecked(
           [&]() { return reader.emitError(); }, &context, dictAttr);
-      if (!nativeValue)
+      if (!nativeValue) {
         return reader.emitError() << "failed to parse OptimizationHintsAttr";
+      }
       return success();
     } else if constexpr (std::is_same_v<T, cuda_tile::BoundedAttr>) {
       uint8_t flagsByte;
-      if (failed(reader.readLE(flagsByte)))
+      if (failed(reader.readLE(flagsByte))) {
         return reader.emitError()
                << "failed to read flags byte for BoundedAttr";
+      }
       bool hasLb = (flagsByte & 0x01) != 0;
       bool hasUb = (flagsByte & 0x02) != 0;
       std::optional<int64_t> lb = std::nullopt;
       std::optional<int64_t> ub = std::nullopt;
       if (hasLb) {
         uint64_t lbVal = 0;
-        if (failed(reader.readSignedVarInt(lbVal)))
+        if (failed(reader.readSignedVarInt(lbVal))) {
           return reader.emitError()
                  << "failed to read lower bound for BoundedAttr";
+        }
         lb = lbVal;
       }
       if (hasUb) {
         uint64_t ubVal = 0;
-        if (failed(reader.readSignedVarInt(ubVal)))
+        if (failed(reader.readSignedVarInt(ubVal))) {
           return reader.emitError()
                  << "failed to read upper bound for BoundedAttr";
+        }
         ub = ubVal;
       }
       nativeValue = cuda_tile::BoundedAttr::get(&context, lb, ub);
@@ -1950,15 +2134,17 @@ class InstructionParser {
                    DenseElementsAttrCache &constCache,
                    std::optional<T> &nativeValue, Type expectedType = nullptr) {
     uint8_t isPresent;
-    if (failed(reader.readLE(isPresent)))
+    if (failed(reader.readLE(isPresent))) {
       return reader.emitError()
              << "failed to read presence byte for optional attribute";
+    }
     if (isPresent == 0x01) {
       T value;
       // Call the non-optional version to parse the actual attribute value.
       if (failed(parseOpAttribute(reader, context, types, constants, constCache,
-                                  value, expectedType)))
+                                  value, expectedType))) {
         return failure();
+      }
       nativeValue = value;
     } else if (isPresent == 0x00) {
       nativeValue = std::nullopt;
@@ -1977,14 +2163,16 @@ public:
       ArrayRef<ArrayRef<uint8_t>> constants, DenseElementsAttrCache &constCache,
       Attribute &resultAttr) {
     uint64_t attributeTag;
-    if (failed(reader.readVarInt(attributeTag)))
+    if (failed(reader.readVarInt(attributeTag))) {
       return reader.emitError()
              << "failed to read AttributeTag for self-contained attribute.";
+    }
 
     auto parseAttr = [&](auto &attr) {
       if (failed(parseOpAttribute(reader, context, types, constants, constCache,
-                                  attr, nullptr)))
+                                  attr, nullptr))) {
         return failure();
+      }
       resultAttr = attr;
       return success();
     };
@@ -2056,16 +2244,18 @@ public:
                  DenseElementsAttrCache &constCache,
                  DebugInfoReader::Iterator &diIterator, MLIRContext &context) {
     uint64_t opcode;
-    if (failed(reader.readVarInt(opcode)))
+    if (failed(reader.readVarInt(opcode))) {
       return reader.emitError() << "failed to read operation opcode.";
+    }
 
     // Get the location for this operation.
     auto loc = diIterator.next<LocationAttr>();
-    if (!loc)
+    if (!loc) {
       return reader.emitError() << "failed to read operation location.";
+    }
 
-      // Includes the generated switch statement for dispatching to the
-      // appropriate 'parse<OpName>' function based on the opcode.
+    // Includes the generated switch statement for dispatching to the
+    // appropriate 'parse<OpName>' function based on the opcode.
 #define GEN_OP_READER_DISPATCH
 #include "BytecodeReader.inc"
 
@@ -2097,54 +2287,63 @@ static LogicalResult parseDebugSection(ArrayRef<uint8_t> payload,
 
   // Read the total number of operations with debug info.
   uint64_t diOpsNum;
-  if (failed(reader.readVarInt(diOpsNum)))
+  if (failed(reader.readVarInt(diOpsNum))) {
     return reader.emitError()
            << "failed to read total number of operations with debug info";
+  }
 
   // Align to 4 bits for the uint32_t diIndexOffsetsPtr.
   auto alignment = alignof(uint32_t);
-  if (failed(reader.skipPadding(alignment)))
+  if (failed(reader.skipPadding(alignment))) {
     return reader.emitError()
            << "failed to skip padding for debug info index offset pointer";
+  }
 
   // Read the per op offset into the debug info indices.
   const uint32_t *diIndexOffsetsPtr =
       reinterpret_cast<const uint32_t *>(reader.getCurrentPtr());
-  if (!diIndexOffsetsPtr)
+  if (!diIndexOffsetsPtr) {
     return reader.emitError()
            << "failed to read debug info index offset pointer.";
+  }
 
   ArrayRef<uint32_t> diIndexOffsets(diIndexOffsetsPtr, diOpsNum);
-  if (failed(reader.skip(diOpsNum * sizeof(uint32_t))))
+  if (failed(reader.skip(diOpsNum * sizeof(uint32_t)))) {
     return reader.emitError() << "failed to skip debug info index offsets";
+  }
 
   // Read the total number of debug info indices.
   uint64_t diIndicesNum = 0;
-  if (failed(reader.readVarInt(diIndicesNum)))
+  if (failed(reader.readVarInt(diIndicesNum))) {
     return reader.emitError()
            << "failed to read total number of debug info indices";
+  }
 
   // Align to 8 bytes for the uint64_t diIndicesPtr.
   auto uint64Alignment = alignof(uint64_t);
-  if (failed(reader.skipPadding(uint64Alignment)))
+  if (failed(reader.skipPadding(uint64Alignment))) {
     return reader.emitError()
            << "failed to skip padding for debug info indices pointer";
+  }
 
   // Read the array of debug indices to debug info attributes.
   const uint64_t *diIndicesPtr =
       reinterpret_cast<const uint64_t *>(reader.getCurrentPtr());
-  if (!diIndicesPtr)
+  if (!diIndicesPtr) {
     return reader.emitError() << "failed to read debug info indices pointer";
+  }
 
   ArrayRef<uint64_t> diIndices(diIndicesPtr, diIndicesNum);
-  if (failed(reader.skip(diIndicesNum * sizeof(uint64_t))))
+  if (failed(reader.skip(diIndicesNum * sizeof(uint64_t)))) {
     return reader.emitError() << "failed to skip debug info indices";
+  }
 
   // Read the total number of debug info attributes.
   uint64_t diAttrNum;
-  if (failed(reader.readVarInt(diAttrNum)))
+  if (failed(reader.readVarInt(diAttrNum))) {
     return reader.emitError()
            << "failed to read total number of debug info attributes";
+  }
 
   if (diAttrNum >
       (payload.size() - reader.currentOffset()) / sizeof(uint32_t)) {
@@ -2157,19 +2356,22 @@ static LogicalResult parseDebugSection(ArrayRef<uint8_t> payload,
   }
 
   // Align to 4 bits for the uint32_t diOffsetsPtr.
-  if (failed(reader.skipPadding(alignment)))
+  if (failed(reader.skipPadding(alignment))) {
     return reader.emitError()
            << "failed to skip padding for debug info offset pointer";
+  }
 
   // Read per debug info attribute offset into the debug info data.
   const uint32_t *diOffsetsPtr =
       reinterpret_cast<const uint32_t *>(reader.getCurrentPtr());
-  if (!diOffsetsPtr)
+  if (!diOffsetsPtr) {
     return reader.emitError() << "failed to read debug info offset pointer";
+  }
 
   ArrayRef<uint32_t> diOffsets(diOffsetsPtr, diAttrNum);
-  if (failed(reader.skip(diAttrNum * sizeof(uint32_t))))
+  if (failed(reader.skip(diAttrNum * sizeof(uint32_t)))) {
     return reader.emitError() << "failed to skip debug info offsets";
+  }
 
   // Read data for each debug info attribute.
   ArrayRef<uint8_t> diData = payload.slice(reader.currentOffset());
@@ -2217,28 +2419,34 @@ static LogicalResult parseFunctionTableSection(
   EncodingReader sectionReader(payload, context);
   sectionReader.inheritStringTableFrom(reader);
   uint64_t numFunctions;
-  if (failed(sectionReader.readVarInt(numFunctions)))
+  if (failed(sectionReader.readVarInt(numFunctions))) {
     return failure();
-  if (numFunctions > payload.size())
+  }
+  if (numFunctions > payload.size()) {
     return sectionReader.emitError()
            << "number of functions (" << numFunctions
            << ") exceeds payload size (" << payload.size() << ")";
+  }
   // Read each function's metadata
   functionInfoList.reserve(numFunctions);
   for (uint64_t i = 0; i < numFunctions; ++i) {
     FunctionInfo funcInfo;
     // Read the name index as a varint.
-    if (failed(sectionReader.readVarInt(funcInfo.nameIndex)))
+    if (failed(sectionReader.readVarInt(funcInfo.nameIndex))) {
       return failure();
+    }
     // Read the signature index as a varint.
-    if (failed(sectionReader.readVarInt(funcInfo.signatureIndex)))
+    if (failed(sectionReader.readVarInt(funcInfo.signatureIndex))) {
       return failure();
+    }
     // Read the entry flag byte.
-    if (failed(sectionReader.readLE(funcInfo.entryFlag)))
+    if (failed(sectionReader.readLE(funcInfo.entryFlag))) {
       return failure();
+    }
     // Read the function location index as a varint.
-    if (failed(sectionReader.readVarInt(funcInfo.functionLocIndex)))
+    if (failed(sectionReader.readVarInt(funcInfo.functionLocIndex))) {
       return failure();
+    }
 
     // Read optimization hints if the flag is set for EntryOp.
     bool isEntry =
@@ -2251,37 +2459,43 @@ static LogicalResult parseFunctionTableSection(
     if (isEntry && hasOptHints) {
       if (failed(InstructionParser::parseSelfContainedOpAttribute(
               sectionReader, context, types, constants, constCache,
-              funcInfo.optimizationHints)))
+              funcInfo.optimizationHints))) {
         return failure();
+      }
     }
 
     // Read the length of the function as a varint.
-    if (failed(sectionReader.readVarInt(funcInfo.lengthOfFunction)))
+    if (failed(sectionReader.readVarInt(funcInfo.lengthOfFunction))) {
       return failure();
+    }
 
     // Validate function length.
-    if (funcInfo.lengthOfFunction > std::numeric_limits<size_t>::max())
+    if (funcInfo.lengthOfFunction > std::numeric_limits<size_t>::max()) {
       return sectionReader.emitError()
              << "function body length " << funcInfo.lengthOfFunction
              << " exceeds maximum addressable size ("
              << std::numeric_limits<size_t>::max() << " bytes)";
+    }
 
     // Check that we have enough remaining bytes.
-    if (funcInfo.lengthOfFunction > sectionReader.remaining())
+    if (funcInfo.lengthOfFunction > sectionReader.remaining()) {
       return sectionReader.emitError()
              << "function body length " << funcInfo.lengthOfFunction
              << " exceeds remaining bytecode data ("
              << sectionReader.remaining() << " bytes)";
+    }
 
     // Read the function body as raw bytes.
     ArrayRef<uint8_t> bodyBytes;
-    if (failed(sectionReader.readBytes(funcInfo.lengthOfFunction, bodyBytes)))
+    if (failed(sectionReader.readBytes(funcInfo.lengthOfFunction, bodyBytes))) {
       return failure();
+    }
 
-    if (bodyBytes.empty() && funcInfo.lengthOfFunction > 0)
+    if (bodyBytes.empty() && funcInfo.lengthOfFunction > 0) {
       return sectionReader.emitError()
              << "failed to read " << funcInfo.lengthOfFunction
              << " bytes for function body";
+    }
 
     funcInfo.functionBody =
         StringRef(reinterpret_cast<const char *>(bodyBytes.data()),
@@ -2304,11 +2518,13 @@ parseFunctionBody(ArrayRef<uint8_t> bodyBytes, OpBuilder &innerBuilder,
   // Inherit the string table from the main file stream reader.
   bodyReader.inheritStringTableFrom(mainFileStreamReader);
 
-  while (bodyReader.remaining() > 0)
+  while (bodyReader.remaining() > 0) {
     if (failed(InstructionParser::parseOperation(
             bodyReader, innerBuilder, valueIndexList, constants, types,
-            constCache, diIterator, context)))
+            constCache, diIterator, context))) {
       return failure();
+    }
+  }
   return success();
 }
 
@@ -2321,31 +2537,36 @@ createFunction(const FunctionInfo &funcInfo, OpBuilder &builder,
                DenseElementsAttrCache &constCache,
                std::vector<Value> &valueIndexList, MLIRContext &context) {
   StringRef funcNameStr;
-  if (failed(reader.getString(funcInfo.nameIndex, funcNameStr, context)))
+  if (failed(reader.getString(funcInfo.nameIndex, funcNameStr, context))) {
     return reader.emitError() << "failed to get function name string at index "
                               << funcInfo.nameIndex;
+  }
   StringAttr funcName = builder.getStringAttr(funcNameStr);
   // Get the function type lazily from the type table.
-  if (funcInfo.signatureIndex >= types.size())
+  if (funcInfo.signatureIndex >= types.size()) {
     return reader.emitError()
            << "function signature index " << funcInfo.signatureIndex
            << " out of bounds for function '" << funcNameStr << "'";
+  }
   Type signatureType = types.getType(funcInfo.signatureIndex);
-  if (!signatureType)
+  if (!signatureType) {
     return reader.emitError()
            << "failed to parse type at index " << funcInfo.signatureIndex
            << " for function '" << funcNameStr;
+  }
   FunctionType funcType = mlir::dyn_cast<FunctionType>(signatureType);
-  if (!funcType)
+  if (!funcType) {
     return reader.emitError()
            << "function signature index " << funcInfo.signatureIndex
            << " does not refer to a function type for function '" << funcNameStr
            << "', got type: " << signatureType;
+  }
   auto diIterator = debuginfo.getIterator(funcInfo.functionLocIndex);
   auto funcLoc = diIterator.next<LocationAttr>();
-  if (!funcLoc)
+  if (!funcLoc) {
     return reader.emitError()
            << "failed to read function location for '" << funcNameStr << "'";
+  }
 
   // Determine if it's an EntryOp based on the flag
   bool isEntry =
@@ -2356,13 +2577,15 @@ createFunction(const FunctionInfo &funcInfo, OpBuilder &builder,
 
   SmallVector<Attribute, 4> argAttrs;
   argAttrs.reserve(funcType.getNumInputs());
-  for (size_t i = 0; i < funcType.getNumInputs(); ++i)
+  for (size_t i = 0; i < funcType.getNumInputs(); ++i) {
     argAttrs.emplace_back(builder.getDictionaryAttr({}));
+  }
   SmallVector<Attribute, 4> retAttrs;
   retAttrs.reserve(funcType.getNumResults());
   ArrayAttr funcArgAttrs = builder.getArrayAttr(argAttrs);
-  for (size_t i = 0; i < funcType.getNumResults(); ++i)
+  for (size_t i = 0; i < funcType.getNumResults(); ++i) {
     retAttrs.emplace_back(builder.getDictionaryAttr({}));
+  }
   ArrayAttr funcRetAttrs = builder.getArrayAttr(retAttrs);
 
   // Create the appropriate operation type
@@ -2392,17 +2615,19 @@ createFunction(const FunctionInfo &funcInfo, OpBuilder &builder,
   auto &entryBlock = *funcOpIFace.addEntryBlock();
   OpBuilder innerBuilder(&entryBlock, entryBlock.begin());
   valueIndexList.clear();
-  for (BlockArgument arg : entryBlock.getArguments())
+  for (BlockArgument arg : entryBlock.getArguments()) {
     valueIndexList.emplace_back(arg);
+  }
   ArrayRef<uint8_t> bodyBytes(
       reinterpret_cast<const uint8_t *>(funcInfo.functionBody.data()),
       funcInfo.functionBody.size());
   // Parse the function body  instructions.
   if (failed(parseFunctionBody(bodyBytes, innerBuilder, valueIndexList,
                                diIterator, constants, types, constCache,
-                               context, reader)))
+                               context, reader))) {
     return reader.emitError() << "failed to parse function body for function '"
                               << funcNameStr << "'";
+  }
   return success();
 }
 
@@ -2438,8 +2663,9 @@ static LogicalResult parseGlobalSection(ArrayRef<uint8_t> payload,
   sectionReader.inheritStringTableFrom(mainReader);
 
   uint64_t numGlobals;
-  if (failed(sectionReader.readVarInt(numGlobals)))
+  if (failed(sectionReader.readVarInt(numGlobals))) {
     return sectionReader.emitError() << "failed to read number of global.";
+  }
 
   // A global entry has at least 4 varints, each at least 1 byte.
   static constexpr size_t kMinGlobalInfoSize = 4;
@@ -2458,22 +2684,26 @@ static LogicalResult parseGlobalSection(ArrayRef<uint8_t> payload,
   for (uint64_t i = 0; i < numGlobals; ++i) {
     GlobalInfo globalInfo;
     // 1. Read symbol name index.
-    if (failed(sectionReader.readVarInt(globalInfo.symbolNameIndex)))
+    if (failed(sectionReader.readVarInt(globalInfo.symbolNameIndex))) {
       return sectionReader.emitError()
              << "failed to read global symbol name string.";
+    }
 
     // 2. Read type index of the value.
-    if (failed(sectionReader.readVarInt(globalInfo.valueTypeIndex)))
+    if (failed(sectionReader.readVarInt(globalInfo.valueTypeIndex))) {
       return sectionReader.emitError() << "failed to read global value type";
+    }
 
     // 3. Read constant index for the value.
-    if (failed(sectionReader.readVarInt(globalInfo.constantValueIndex)))
+    if (failed(sectionReader.readVarInt(globalInfo.constantValueIndex))) {
       return sectionReader.emitError()
              << "failed to read global value constant index";
+    }
 
     // 4. Read alignment.
-    if (failed(sectionReader.readVarInt(globalInfo.alignment)))
+    if (failed(sectionReader.readVarInt(globalInfo.alignment))) {
       return sectionReader.emitError() << "failed to read global alignment";
+    }
 
     globalInfoList.emplace_back(globalInfo);
   }
@@ -2487,26 +2717,31 @@ createGlobal(const GlobalInfo &globalInfo, OpBuilder &builder,
              ArrayRef<ArrayRef<uint8_t>> constants,
              DenseElementsAttrCache &constCache, DebugInfoReader &debuginfo,
              MLIRContext &context) {
-  if (globalInfo.constantValueIndex >= constants.size())
+  if (globalInfo.constantValueIndex >= constants.size()) {
     return reader.emitError() << "global value constant index out of bounds";
+  }
 
   StringRef symNameStr;
-  if (failed(reader.getString(globalInfo.symbolNameIndex, symNameStr, context)))
+  if (failed(
+          reader.getString(globalInfo.symbolNameIndex, symNameStr, context))) {
     return reader.emitError()
            << "failed to get global symbol name string for index "
            << globalInfo.symbolNameIndex;
+  }
 
   FailureOr<Attribute> valueAttr =
       constCache.getOrCreate(types.getType(globalInfo.valueTypeIndex),
                              constants[globalInfo.constantValueIndex], context);
-  if (failed(valueAttr))
+  if (failed(valueAttr)) {
     return failure();
+  }
 
   auto denseValueAttr = dyn_cast<DenseTypedElementsAttr>(*valueAttr);
-  if (!denseValueAttr)
+  if (!denseValueAttr) {
     return reader.emitError()
            << "parsed global constant attribute is not the expected type "
               "derived from DenseTypedElementsAttr";
+  }
 
   // Global variables must not have DILocAttr location type because CudaTile
   // supports only local scope. Therefore, global variables must have UnknownLoc
@@ -2523,12 +2758,14 @@ createGlobal(const GlobalInfo &globalInfo, OpBuilder &builder,
 //===----------------------------------------------------------------------===//
 
 std::optional<size_t> cuda_tile::getBytecodeSize(const char *bytecodeBuffer) {
-  if (!isTileIRBytecode(bytecodeBuffer))
+  if (!isTileIRBytecode(bytecodeBuffer)) {
     return std::nullopt;
+  }
 
   auto charBuffer = reinterpret_cast<const unsigned char *>(bytecodeBuffer);
-  if (charBuffer[sizeof(kTileIRBytecodeMagic)] == 0)
+  if (charBuffer[sizeof(kTileIRBytecodeMagic)] == 0) {
     return std::nullopt;
+  }
 
   // Build a buffer assuming we have the maximum size of the bytecode, we'll
   // infer the actual size as we parse the bytecode.
@@ -2544,8 +2781,9 @@ std::optional<size_t> cuda_tile::getBytecodeSize(const char *bytecodeBuffer) {
   });
 
   // Parse the header of the bytecode.
-  if (failed(parseHeader(reader, context)))
+  if (failed(parseHeader(reader, context))) {
     return std::nullopt;
+  }
 
   // Parse the sections until we reach the end of the bytecode. We don't
   // actually try to reason about the section data, we just want to know the
@@ -2557,12 +2795,14 @@ std::optional<size_t> cuda_tile::getBytecodeSize(const char *bytecodeBuffer) {
     SectionHeader header;
     if (failed(parseSectionHeader(reader, header, context)) ||
         failed(reader.skip(header.length)) ||
-        std::exchange(seenSections[header.sectionID], true))
+        std::exchange(seenSections[header.sectionID], true)) {
       return std::nullopt;
+    }
 
     // Check for the end of the bytecode stream.
-    if (header.sectionID == Section::EndOfBytecode)
+    if (header.sectionID == Section::EndOfBytecode) {
       return reader.currentOffset();
+    }
   }
 }
 
@@ -2576,8 +2816,9 @@ cuda_tile::readBytecode(llvm::MemoryBufferRef bytecodeBuffer,
   EncodingReader reader(bytecodeData, context);
   DebugInfoReader debuginfo(context, reader);
 
-  if (failed(parseHeader(reader, context)))
+  if (failed(parseHeader(reader, context))) {
     return reader.emitError() << "failed to parse bytecode header", nullptr;
+  }
 
   // Store section payloads to allow parsing in a specific order later.
   std::array<std::optional<ArrayRef<uint8_t>>, Section::NumSections + 1>
@@ -2586,8 +2827,9 @@ cuda_tile::readBytecode(llvm::MemoryBufferRef bytecodeBuffer,
   // Discover all sections and store their payloads.
   while (true) {
     SectionHeader header;
-    if (failed(parseSectionHeader(reader, header, context)))
+    if (failed(parseSectionHeader(reader, header, context))) {
       return reader.emitError() << "failed to parse section header", nullptr;
+    }
 
     // Check for the end of the bytecode stream.
     if (header.sectionID == Section::EndOfBytecode) {
@@ -2615,14 +2857,16 @@ cuda_tile::readBytecode(llvm::MemoryBufferRef bytecodeBuffer,
     switch (header.sectionID) {
     case Section::String:
     case Section::Type:
-      if (!validateSectionAlignment(alignof(uint32_t)))
+      if (!validateSectionAlignment(alignof(uint32_t))) {
         return nullptr;
+      }
       break;
     case Section::Constant:
     case Section::Debug:
     case Section::Func:
-      if (!validateSectionAlignment(alignof(uint64_t)))
+      if (!validateSectionAlignment(alignof(uint64_t))) {
         return nullptr;
+      }
       break;
     case Section::Global:
       // Global section has variable alignment requirements, skip validation
@@ -2640,8 +2884,9 @@ cuda_tile::readBytecode(llvm::MemoryBufferRef bytecodeBuffer,
       return nullptr;
     }
     ArrayRef<uint8_t> payload;
-    if (failed(reader.readBytes(header.length, payload)))
+    if (failed(reader.readBytes(header.length, payload))) {
       return reader.emitError() << "failed to read section payload", nullptr;
+    }
 
     sectionPayloads[header.sectionID] = payload;
   }
@@ -2658,42 +2903,52 @@ cuda_tile::readBytecode(llvm::MemoryBufferRef bytecodeBuffer,
   // Parse String Section.
   if (sectionPayloads[Section::String].has_value()) {
     if (failed(parseStringSection(*sectionPayloads[Section::String], reader,
-                                  context)))
+                                  context))) {
       return reader.emitError() << "failed to parse string section", nullptr;
+    }
   } else {
     return reader.emitError() << "string section is mandatory", nullptr;
   }
   // Parse Type Section.
-  if (sectionPayloads[Section::Type].has_value())
-    if (failed(
-            parseTypeSection(*sectionPayloads[Section::Type], types, context)))
+  if (sectionPayloads[Section::Type].has_value()) {
+    if (failed(parseTypeSection(*sectionPayloads[Section::Type], types,
+                                context))) {
       return reader.emitError() << "failed to parse type section", nullptr;
+    }
+  }
   // Parse Constant Section.
-  if (sectionPayloads[Section::Constant].has_value())
+  if (sectionPayloads[Section::Constant].has_value()) {
     if (failed(parseConstantSection(*sectionPayloads[Section::Constant],
-                                    constants, context)))
+                                    constants, context))) {
       return reader.emitError() << "failed to parse constant section", nullptr;
+    }
+  }
   // Parse Global Section.
   if (sectionPayloads[static_cast<uint8_t>(Bytecode::Section::Global)]
-          .has_value())
+          .has_value()) {
     if (failed(parseGlobalSection(
             *sectionPayloads[static_cast<uint8_t>(Bytecode::Section::Global)],
-            reader, globalInfoList, context)))
+            reader, globalInfoList, context))) {
       return reader.emitError() << "failed to parse global section", nullptr;
+    }
+  }
   // Parse Function Section.
   if (sectionPayloads[Section::Func].has_value()) {
-    if (failed(parseFunctionTableSection(*sectionPayloads[Section::Func],
-                                         functionInfoList, reader, types,
-                                         constants, globalConstCache, context)))
+    if (failed(parseFunctionTableSection(
+            *sectionPayloads[Section::Func], functionInfoList, reader, types,
+            constants, globalConstCache, context))) {
       return reader.emitError() << "failed to parse function section", nullptr;
+    }
   } else {
     return reader.emitError() << "function section is mandatory", nullptr;
   }
   // Parse Debug Section.
-  if (sectionPayloads[Section::Debug].has_value())
+  if (sectionPayloads[Section::Debug].has_value()) {
     if (failed(parseDebugSection(*sectionPayloads[Section::Debug], debuginfo,
-                                 context)))
+                                 context))) {
       return reader.emitError() << "failed to parse debug section", nullptr;
+    }
+  }
 
   OpBuilder moduleBuilder(&context);
   OwningOpRef<cuda_tile::ModuleOp> cudaTileModule(cuda_tile::ModuleOp::create(
@@ -2701,17 +2956,21 @@ cuda_tile::readBytecode(llvm::MemoryBufferRef bytecodeBuffer,
   OpBuilder builder(cudaTileModule->getBody());
   OpBuilder funcBuilder(&cudaTileModule->getBody().front(),
                         cudaTileModule->getBody().front().begin());
-  for (const auto &globalInfo : globalInfoList)
+  for (const auto &globalInfo : globalInfoList) {
     if (failed(createGlobal(globalInfo, builder, reader, types, constants,
-                            globalConstCache, debuginfo, context)))
+                            globalConstCache, debuginfo, context))) {
       return reader.emitError() << "failed to create global from bytecode",
              nullptr;
-  for (const auto &funcInfo : functionInfoList)
+    }
+  }
+  for (const auto &funcInfo : functionInfoList) {
     if (failed(createFunction(funcInfo, builder, funcBuilder, reader, types,
                               debuginfo, constants, globalConstCache,
-                              valueIndexList, context)))
+                              valueIndexList, context))) {
       return reader.emitError() << "failed to create function from bytecode",
              nullptr;
+    }
+  }
   if (failed(verify(cudaTileModule.get()))) {
     ::emitError(UnknownLoc::get(&context))
         << "verification failed for deserialized cuda_tile::ModuleOp";

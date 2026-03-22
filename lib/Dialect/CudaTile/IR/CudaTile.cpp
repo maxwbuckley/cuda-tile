@@ -5,6 +5,12 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
+#include "cuda_tile/Dialect/CudaTile/IR/Attributes.h"
+#include "cuda_tile/Dialect/CudaTile/IR/Dialect.h"
+#include "cuda_tile/Dialect/CudaTile/IR/Interfaces.h"
+#include "cuda_tile/Dialect/CudaTile/IR/Ops.h"
+#include "cuda_tile/Dialect/CudaTile/IR/SharedVerifiers.h"
+#include "cuda_tile/Dialect/CudaTile/IR/Types.h"
 #include "mlir/Bytecode/BytecodeOpInterface.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinAttributes.h"
@@ -24,34 +30,30 @@
 #include "llvm/Support/LogicalResult.h"
 #include "llvm/Support/raw_ostream.h"
 
-#include "cuda_tile/Dialect/CudaTile/IR/Attributes.h"
-#include "cuda_tile/Dialect/CudaTile/IR/Dialect.h"
-#include "cuda_tile/Dialect/CudaTile/IR/Interfaces.h"
-#include "cuda_tile/Dialect/CudaTile/IR/Ops.h"
-#include "cuda_tile/Dialect/CudaTile/IR/SharedVerifiers.h"
-#include "cuda_tile/Dialect/CudaTile/IR/Types.h"
-
 using namespace mlir;
 using namespace mlir::cuda_tile;
 
 int64_t cuda_tile::getMaxSignedValueForBitwidth(int64_t n) {
   assert(n > 0 && n <= 64 && "invalid bitwidth");
-  if (n == 64)
+  if (n == 64) {
     return std::numeric_limits<int64_t>::max();
+  }
   return (static_cast<int64_t>(1) << (n - 1)) - 1;
 }
 
 int64_t cuda_tile::getMinSignedValueForBitwidth(int64_t n) {
   assert(n > 0 && n <= 64 && "invalid bitwidth");
-  if (n == 64)
+  if (n == 64) {
     return std::numeric_limits<int64_t>::min();
+  }
   return -(static_cast<int64_t>(1) << (n - 1));
 }
 
 uint64_t cuda_tile::getMaxUnsignedValueForBitwidth(int64_t n) {
   assert(n > 0 && n <= 64 && "invalid bitwidth");
-  if (n == 64)
+  if (n == 64) {
     return std::numeric_limits<uint64_t>::max();
+  }
   return (static_cast<int64_t>(1) << n) - 1;
 }
 
@@ -75,8 +77,9 @@ namespace {
 static mlir::LogicalResult validateSSANameConsistency(
     mlir::OpAsmParser &parser, mlir::SMLoc loc, bool hasSSAName,
     llvm::ArrayRef<mlir::OpAsmParser::Argument> existingArgs) {
-  if (existingArgs.empty())
+  if (existingArgs.empty()) {
     return mlir::success();
+  }
 
   bool prevHasSSAName = !existingArgs.back().ssaName.name.empty();
   if (hasSSAName != prevHasSSAName) {
@@ -99,21 +102,24 @@ static mlir::ParseResult parseSingleArgument(
   bool hasSSAName = ssaResult.has_value();
 
   if (hasSSAName) {
-    if (mlir::failed(ssaResult.value()) || parser.parseColon())
+    if (mlir::failed(ssaResult.value()) || parser.parseColon()) {
       return mlir::failure();
+    }
   }
 
   // Validate consistent SSA name usage
   if (mlir::failed(validateSSANameConsistency(parser, arg.ssaName.location,
-                                              hasSSAName, arguments)))
+                                              hasSSAName, arguments))) {
     return mlir::failure();
+  }
 
   // Parse type and attributes using cuda_tile-aware parser
   mlir::NamedAttrList attrs;
   if (parseCudaTileType(parser, arg.type) ||
       parser.parseOptionalAttrDict(attrs) ||
-      parser.parseOptionalLocationSpecifier(arg.sourceLoc))
+      parser.parseOptionalLocationSpecifier(arg.sourceLoc)) {
     return mlir::failure();
+  }
 
   arg.attrs = attrs.getDictionary(parser.getContext());
   arguments.push_back(arg);
@@ -129,10 +135,11 @@ static mlir::ParseResult parseFunctionArgumentList(
 
   return parser.parseCommaSeparatedList(
       mlir::OpAsmParser::Delimiter::Paren, [&]() -> mlir::ParseResult {
-        if (isVariadic)
+        if (isVariadic) {
           return parser.emitError(
               parser.getCurrentLocation(),
               "variadic arguments must be at end of argument list");
+        }
 
         // Handle variadic ellipsis
         if (allowVariadic && mlir::succeeded(parser.parseOptionalEllipsis())) {
@@ -154,8 +161,9 @@ parseTypeAndAttrList(mlir::OpAsmParser &parser,
     attrs.emplace_back();
     mlir::NamedAttrList attrList;
     if (parseCudaTileType(parser, types.back()) ||
-        parser.parseOptionalAttrDict(attrList))
+        parser.parseOptionalAttrDict(attrList)) {
       return mlir::failure();
+    }
     attrs.back() = attrList.getDictionary(parser.getContext());
     return mlir::success();
   });
@@ -168,19 +176,22 @@ static mlir::ParseResult parseFunctionResultList(
   if (mlir::failed(parser.parseOptionalLParen())) {
     // Single result type (no parentheses)
     mlir::Type resultType;
-    if (parseCudaTileType(parser, resultType))
+    if (parseCudaTileType(parser, resultType)) {
       return mlir::failure();
+    }
     resultTypes.push_back(resultType);
     resultAttrs.emplace_back();
     return mlir::success();
   }
 
   // Parenthesized result list
-  if (mlir::succeeded(parser.parseOptionalRParen()))
+  if (mlir::succeeded(parser.parseOptionalRParen())) {
     return mlir::success(); // Empty result list
+  }
 
-  if (parseTypeAndAttrList(parser, resultTypes, resultAttrs))
+  if (parseTypeAndAttrList(parser, resultTypes, resultAttrs)) {
     return mlir::failure();
+  }
   return parser.parseRParen();
 }
 
@@ -192,10 +203,12 @@ mlir::ParseResult cuda_tile::parseFunctionSignatureWithArguments(
     llvm::SmallVectorImpl<mlir::OpAsmParser::Argument> &arguments,
     bool &isVariadic, llvm::SmallVectorImpl<mlir::Type> &resultTypes,
     llvm::SmallVectorImpl<mlir::DictionaryAttr> &resultAttrs) {
-  if (parseFunctionArgumentList(parser, allowVariadic, arguments, isVariadic))
+  if (parseFunctionArgumentList(parser, allowVariadic, arguments, isVariadic)) {
     return mlir::failure();
-  if (mlir::succeeded(parser.parseOptionalArrow()))
+  }
+  if (mlir::succeeded(parser.parseOptionalArrow())) {
     return parseFunctionResultList(parser, resultTypes, resultAttrs);
+  }
   return mlir::success();
 }
 
@@ -205,20 +218,19 @@ static void printFunctionSignatureWithCudaTileTypes(
     bool isVariadic, TypeRange resultTypes, Region *body) {
   printer << '(';
   for (unsigned i = 0, e = argTypes.size(); i < e; ++i) {
-    if (i > 0)
+    if (i > 0) {
       printer << ", ";
+    }
     auto arg = body->getArgument(i);
-    ArrayRef<NamedAttribute> attrs;
-    if (argAttrs)
-      attrs = llvm::cast<DictionaryAttr>(argAttrs[i]).getValue();
     printer.printOperand(arg);
     printer << ": ";
     printCudaTileType(printer, arg.getType());
   }
 
   if (isVariadic) {
-    if (!argTypes.empty())
+    if (!argTypes.empty()) {
       printer << ", ";
+    }
     printer << "...";
   }
 
@@ -305,18 +317,20 @@ static bool isValidDenseElementType(Type elementType) {
 static ParseResult parseDenseTypedElementsAttr(OpAsmParser &parser,
                                                DenseTypedElementsAttr &attr,
                                                Type &resultType) {
-  if (parser.parseLess())
+  if (parser.parseLess()) {
     return failure();
+  }
 
   // We use the prefix element type to understand how to parse the dense values.
   Type prefixElementType;
-  if (parseCudaTileType(parser, prefixElementType))
+  if (parseCudaTileType(parser, prefixElementType)) {
     return parser.emitError(parser.getCurrentLocation())
            << "expect element type to be one of i1 or i8 or i16 or i32 or i64 "
               "or f16 "
               "or bf16 or f32 or f64 or tf32 or f8E4M3FN or f8E5M2 values, but "
               "got "
            << prefixElementType;
+  }
 
   // Validate that prefixElementType is one of the allowed types
   if (!isValidDenseElementType(prefixElementType)) {
@@ -330,8 +344,9 @@ static ParseResult parseDenseTypedElementsAttr(OpAsmParser &parser,
 
   bool isInteger = prefixElementType.isIntOrIndex();
 
-  if (parser.parseColon())
+  if (parser.parseColon()) {
     return failure();
+  }
 
   SmallVector<APFloat> floatValues;
   SmallVector<int64_t> integerValues;
@@ -349,16 +364,20 @@ static ParseResult parseDenseTypedElementsAttr(OpAsmParser &parser,
       // Error when true or false passed to an int that is not an i1
       if (prefixElementType.getIntOrFloatBitWidth() != 1 &&
           (succeeded(parser.parseOptionalKeyword("true")) ||
-           succeeded(parser.parseOptionalKeyword("false"))))
+           succeeded(parser.parseOptionalKeyword("false")))) {
         return parser.emitError(loc, "expected integer value");
+      }
 
       int64_t intVal;
-      if (parser.parseInteger(intVal))
+      if (parser.parseInteger(intVal)) {
         return parser.emitError(loc, "expected integer value");
+      }
 
       // Validate the integer fits in the target type
-      if (failed(validateIntegerBounds(parser, intVal, prefixElementType, loc)))
+      if (failed(
+              validateIntegerBounds(parser, intVal, prefixElementType, loc))) {
         return failure();
+      }
 
       integerValues.push_back(intVal);
       return success();
@@ -367,8 +386,9 @@ static ParseResult parseDenseTypedElementsAttr(OpAsmParser &parser,
     assert(!isInteger && "expect integer but parsing a float");
     const llvm::fltSemantics *targetSemantics = &APFloat::IEEEdouble();
     APFloat floatValue(APFloat::IEEEdouble());
-    if (auto floatType = dyn_cast<FloatType>(prefixElementType))
+    if (auto floatType = dyn_cast<FloatType>(prefixElementType)) {
       targetSemantics = &floatType.getFloatSemantics();
+    }
 
     if (succeeded(parser.parseFloat(*targetSemantics, floatValue))) {
       floatValues.push_back(floatValue);
@@ -404,8 +424,9 @@ static ParseResult parseDenseTypedElementsAttr(OpAsmParser &parser,
           if (failed(parser.parseCommaSeparatedList([&]() -> ParseResult {
                 nestedElementCount++;
                 SmallVector<int64_t> currentElementShape;
-                if (failed(parseNestedArrayWithShape(currentElementShape)))
+                if (failed(parseNestedArrayWithShape(currentElementShape))) {
                   return failure();
+                }
 
                 // Capture shape from first element for consistency checking
                 if (isFirstElement) {
@@ -421,11 +442,13 @@ static ParseResult parseDenseTypedElementsAttr(OpAsmParser &parser,
                   }
                 }
                 return success();
-              })))
+              }))) {
             return failure();
+          }
 
-          if (failed(parser.parseRSquare()))
+          if (failed(parser.parseRSquare())) {
             return failure();
+          }
 
           // Build shape for this nested array: [count] + [first_element_shape]
           SmallVector<int64_t> thisNestedShape;
@@ -455,8 +478,9 @@ static ParseResult parseDenseTypedElementsAttr(OpAsmParser &parser,
         return failure();
       }
 
-      if (failed(parser.parseRSquare()))
+      if (failed(parser.parseRSquare())) {
         return failure();
+      }
 
       // Build final shape: [element_count] + [element_shape]
       currentShape.push_back(elementCount);
@@ -467,19 +491,23 @@ static ParseResult parseDenseTypedElementsAttr(OpAsmParser &parser,
   };
 
   // Parse the value (can be scalar or nested array)
-  if (failed(parseNestedArrayWithShape(inferredShape)))
+  if (failed(parseNestedArrayWithShape(inferredShape))) {
     return failure();
+  }
 
-  if (parser.parseGreater())
+  if (parser.parseGreater()) {
     return failure();
+  }
 
   // Parse colon and then the type to determine how to interpret values
-  if (parser.parseColon())
+  if (parser.parseColon()) {
     return failure();
+  }
 
   SMLoc typeLoc = parser.getCurrentLocation();
-  if (parseCudaTileType(parser, resultType))
+  if (parseCudaTileType(parser, resultType)) {
     return failure();
+  }
 
   // Create dense attribute with the tile type
   auto tileType = dyn_cast<cuda_tile::TileType>(resultType);
@@ -491,10 +519,11 @@ static ParseResult parseDenseTypedElementsAttr(OpAsmParser &parser,
            << resultType;
   }
   auto elementType = tileType.getElementType();
-  if (prefixElementType != elementType)
+  if (prefixElementType != elementType) {
     return parser.emitError(typeLoc)
            << "mismatch between the element type: " << prefixElementType
            << " and the tile element type " << elementType;
+  }
 
   // Verify shape consistency
   ArrayRef<int64_t> expectedShape = tileType.getShape();
@@ -529,34 +558,39 @@ static ParseResult parseDenseTypedElementsAttr(OpAsmParser &parser,
     }
   }
 
-  if (integerValues.empty() && floatValues.empty())
+  if (integerValues.empty() && floatValues.empty()) {
     return parser.emitError(parser.getCurrentLocation(),
                             "dense attribute cannot be empty");
+  }
 
   // Determine if we should interpret as float or integer based on element type
   if (elementType.isIntOrIndex()) {
     if (elementType.isInteger(1)) {
       SmallVector<bool> boolValues;
-      for (int64_t val : integerValues)
+      for (int64_t val : integerValues) {
         boolValues.push_back(val != 0);
+      }
       attr = llvm::cast<DenseTypedElementsAttr>(
           DenseElementsAttr::get(tileType, ArrayRef<bool>(boolValues)));
     } else if (elementType.isInteger(8)) {
       SmallVector<int8_t> i8Values;
-      for (int64_t val : integerValues)
+      for (int64_t val : integerValues) {
         i8Values.push_back(static_cast<int8_t>(val));
+      }
       attr = llvm::cast<DenseTypedElementsAttr>(
           DenseElementsAttr::get(tileType, ArrayRef<int8_t>(i8Values)));
     } else if (elementType.isInteger(16)) {
       SmallVector<int16_t> i16Values;
-      for (int64_t val : integerValues)
+      for (int64_t val : integerValues) {
         i16Values.push_back(static_cast<int16_t>(val));
+      }
       attr = llvm::cast<DenseTypedElementsAttr>(
           DenseElementsAttr::get(tileType, ArrayRef<int16_t>(i16Values)));
     } else if (elementType.isInteger(32)) {
       SmallVector<int32_t> i32Values;
-      for (int64_t val : integerValues)
+      for (int64_t val : integerValues) {
         i32Values.push_back(static_cast<int32_t>(val));
+      }
       attr = llvm::cast<DenseTypedElementsAttr>(
           DenseElementsAttr::get(tileType, ArrayRef<int32_t>(i32Values)));
     } else if (elementType.isInteger(64)) {
@@ -575,7 +609,7 @@ static ParseResult parseDenseTypedElementsAttr(OpAsmParser &parser,
 }
 
 // constant <f32: 42.0> : tile<f32>
-static void printDenseTypedElementsAttr(OpAsmPrinter &p, Operation *op,
+static void printDenseTypedElementsAttr(OpAsmPrinter &p, Operation *,
                                         DenseTypedElementsAttr attr,
                                         Type resultType) {
   // Print the dense values part (everything before the colon)
@@ -611,9 +645,9 @@ parseDenseTypedElementsAttrNoResult(OpAsmParser &parser,
   return parseDenseTypedElementsAttr(parser, attr, resultType);
 }
 
-static void printDenseTypedElementsAttrNoResult(OpAsmPrinter &p, Operation *op,
+static void printDenseTypedElementsAttrNoResult(OpAsmPrinter &p, Operation *,
                                                 DenseTypedElementsAttr attr) {
-  printDenseTypedElementsAttr(p, op, attr, attr.getType());
+  printDenseTypedElementsAttr(p, nullptr, attr, attr.getType());
 }
 
 //===----------------------------------------------------------------------===//
@@ -623,19 +657,20 @@ static void printDenseTypedElementsAttrNoResult(OpAsmPrinter &p, Operation *op,
 static ParseResult parseSignedness(OpAsmParser &parser, SignednessAttr &attr) {
   StringRef enumKeyword;
   SMLoc loc = parser.getCurrentLocation();
-  if (failed(parser.parseKeyword(&enumKeyword)))
+  if (failed(parser.parseKeyword(&enumKeyword))) {
     return parser.emitError(loc)
            << "expected signedness to be one of: {'signed', 'unsigned'}";
+  }
   auto maybeEnum = symbolizeSignedness(enumKeyword);
-  if (!maybeEnum)
+  if (!maybeEnum) {
     return parser.emitError(loc)
            << "expected signedness to be one of: {'signed', 'unsigned'}";
+  }
   attr = SignednessAttr::get(parser.getContext(), *maybeEnum);
   return success();
 }
 
-static void printSignedness(OpAsmPrinter &p, Operation *op,
-                            SignednessAttr attr) {
+static void printSignedness(OpAsmPrinter &p, Operation *, SignednessAttr attr) {
   p << stringifySignedness(attr.getValue());
 }
 
@@ -647,22 +682,24 @@ static ParseResult parseComparisonPredicate(OpAsmParser &parser,
                                             ComparisonPredicateAttr &attr) {
   StringRef enumKeyword;
   SMLoc loc = parser.getCurrentLocation();
-  if (failed(parser.parseKeyword(&enumKeyword)))
+  if (failed(parser.parseKeyword(&enumKeyword))) {
     return parser.emitError(loc)
            << "expected 'comparison_predicate' to be one "
               "of: {'equal', 'not_equal', 'less_than', 'less_than_or_equal', "
               "'greater_than', 'greater_than_or_equal'}";
+  }
   auto maybeEnum = symbolizeComparisonPredicate(enumKeyword);
-  if (!maybeEnum)
+  if (!maybeEnum) {
     return parser.emitError(loc)
            << "expected 'comparison_predicate' to be one "
               "of: {'equal', 'not_equal', 'less_than', 'less_than_or_equal', "
               "'greater_than', 'greater_than_or_equal'}";
+  }
   attr = ComparisonPredicateAttr::get(parser.getContext(), *maybeEnum);
   return success();
 }
 
-static void printComparisonPredicate(OpAsmPrinter &p, Operation *op,
+static void printComparisonPredicate(OpAsmPrinter &p, Operation *,
                                      ComparisonPredicateAttr attr) {
   p << stringifyComparisonPredicate(attr.getValue());
 }
@@ -675,18 +712,20 @@ static ParseResult parseComparisonOrdering(OpAsmParser &parser,
                                            ComparisonOrderingAttr &attr) {
   StringRef enumKeyword;
   SMLoc loc = parser.getCurrentLocation();
-  if (failed(parser.parseKeyword(&enumKeyword)))
+  if (failed(parser.parseKeyword(&enumKeyword))) {
     return parser.emitError(loc) << "expected 'comparison_ordering' to be one "
                                     "of: {'ordered', 'unordered'}";
+  }
   auto maybeEnum = symbolizeComparisonOrdering(enumKeyword);
-  if (!maybeEnum)
+  if (!maybeEnum) {
     return parser.emitError(loc) << "expected 'comparison_ordering' to be one "
                                     "of: {'ordered', 'unordered'}";
+  }
   attr = ComparisonOrderingAttr::get(parser.getContext(), *maybeEnum);
   return success();
 }
 
-static void printComparisonOrdering(OpAsmPrinter &p, Operation *op,
+static void printComparisonOrdering(OpAsmPrinter &p, Operation *,
                                     ComparisonOrderingAttr attr) {
   p << stringifyComparisonOrdering(attr.getValue());
 }
@@ -695,10 +734,11 @@ static void printComparisonOrdering(OpAsmPrinter &p, Operation *op,
 // Rounding Mode parsing
 //===----------------------------------------------------------------------===//
 
-static void printRoundingModeIfNotRN(OpAsmPrinter &p, Operation *op,
+static void printRoundingModeIfNotRN(OpAsmPrinter &p, Operation *,
                                      RoundingModeAttr attr) {
-  if (attr.getValue() == RoundingMode::NEAREST_EVEN)
+  if (attr.getValue() == RoundingMode::NEAREST_EVEN) {
     return;
+  }
   p << "rounding<";
   p << stringifyRoundingMode(attr.getValue());
   p << ">";
@@ -714,16 +754,19 @@ static ParseResult parseRoundingModeWithModes(
   if (succeeded(parser.parseOptionalKeyword("rounding"))) {
     // If "rounding" keyword is found, we must parse the full syntax:
     // rounding<mode>
-    if (parser.parseLess())
+    if (parser.parseLess()) {
       return failure();
+    }
 
     // Parse the rounding mode string
     StringRef roundingModeStr;
-    if (parser.parseKeyword(&roundingModeStr))
+    if (parser.parseKeyword(&roundingModeStr)) {
       return failure();
+    }
 
-    if (parser.parseGreater())
+    if (parser.parseGreater()) {
       return failure();
+    }
 
     // Convert string to RoundingMode enum
     auto roundingMode = symbolizeRoundingMode(roundingModeStr);
@@ -738,8 +781,9 @@ static ParseResult parseRoundingModeWithModes(
 
     // Apply custom validation if provided
     if (validator) {
-      if (failed(validator(parser, roundingMode.value(), roundingModeStr)))
+      if (failed(validator(parser, roundingMode.value(), roundingModeStr))) {
         return failure();
+      }
     }
 
     attr = RoundingModeAttr::get(parser.getContext(), roundingMode.value());
@@ -757,9 +801,9 @@ static ParseResult parseDivFOpRoundingMode(OpAsmParser &parser,
   return parseRoundingModeWithModes(parser, attr, allowedModes);
 }
 
-static void printDivFOpRoundingMode(OpAsmPrinter &p, Operation *op,
+static void printDivFOpRoundingMode(OpAsmPrinter &p, Operation *,
                                     RoundingModeAttr attr) {
-  printRoundingModeIfNotRN(p, op, attr);
+  printRoundingModeIfNotRN(p, nullptr, attr);
 }
 
 static ParseResult parseSqrtOpRoundingMode(OpAsmParser &parser,
@@ -769,14 +813,14 @@ static ParseResult parseSqrtOpRoundingMode(OpAsmParser &parser,
   return parseRoundingModeWithModes(parser, attr, allowedModes);
 }
 
-static void printSqrtOpRoundingMode(OpAsmPrinter &p, Operation *op,
+static void printSqrtOpRoundingMode(OpAsmPrinter &p, Operation *,
                                     RoundingModeAttr attr) {
-  printRoundingModeIfNotRN(p, op, attr);
+  printRoundingModeIfNotRN(p, nullptr, attr);
 }
 
-static void printIEEERoundingMode(OpAsmPrinter &p, Operation *op,
+static void printIEEERoundingMode(OpAsmPrinter &p, Operation *,
                                   RoundingModeAttr attr) {
-  printRoundingModeIfNotRN(p, op, attr);
+  printRoundingModeIfNotRN(p, nullptr, attr);
 }
 
 static ParseResult parseRoundingModeWithModes(
@@ -788,16 +832,19 @@ static ParseResult parseRoundingModeWithModes(
   if (succeeded(parser.parseOptionalKeyword("rounding"))) {
     // If "rounding" keyword is found, we must parse the full syntax:
     // rounding<mode>
-    if (parser.parseLess())
+    if (parser.parseLess()) {
       return failure();
+    }
 
     // Parse the rounding mode string
     StringRef roundingModeStr;
-    if (parser.parseKeyword(&roundingModeStr))
+    if (parser.parseKeyword(&roundingModeStr)) {
       return failure();
+    }
 
-    if (parser.parseGreater())
+    if (parser.parseGreater()) {
       return failure();
+    }
 
     // Convert string to RoundingMode enum
     auto roundingMode = symbolizeRoundingMode(roundingModeStr);
@@ -836,8 +883,8 @@ static ParseResult parseIntegerRoundingMode(OpAsmParser &parser,
                                             RoundingModeAttr &attr) {
   static const StringRef allowedModes[] = {"nearest_int_to_zero"};
 
-  auto intgerValidator = [](OpAsmParser &parser, RoundingMode roundingMode,
-                            StringRef roundingModeStr) -> ParseResult {
+  auto intgerValidator = [](OpAsmParser &, RoundingMode roundingMode,
+                            StringRef) -> ParseResult {
     // Only allow integer rounding modes
     if (roundingMode != RoundingMode::NEAREST_INT_TO_ZERO) {
       return failure();
@@ -850,10 +897,11 @@ static ParseResult parseIntegerRoundingMode(OpAsmParser &parser,
                                     intgerValidator);
 }
 
-static void printIntegerRoundingMode(OpAsmPrinter &printer, Operation *op,
+static void printIntegerRoundingMode(OpAsmPrinter &printer, Operation *,
                                      RoundingModeAttr attr) {
-  if (attr.getValue() == RoundingMode::NEAREST_INT_TO_ZERO)
+  if (attr.getValue() == RoundingMode::NEAREST_INT_TO_ZERO) {
     return;
+  }
   printer << "rounding<";
   printer << stringifyRoundingMode(attr.getValue());
   printer << ">";
@@ -864,8 +912,8 @@ static ParseResult parseIEEERoundingMode(OpAsmParser &parser,
   static const StringRef allowedModes[] = {"nearest_even", "zero",
                                            "negative_inf", "positive_inf"};
 
-  auto ieeeValidator = [](OpAsmParser &parser, RoundingMode roundingMode,
-                          StringRef roundingModeStr) -> ParseResult {
+  auto ieeeValidator = [](OpAsmParser &, RoundingMode roundingMode,
+                          StringRef) -> ParseResult {
     // Only allow IEEE rounding modes
     if (roundingMode != RoundingMode::NEAREST_EVEN &&
         roundingMode != RoundingMode::ZERO &&
@@ -905,8 +953,9 @@ static ParseResult parseAssumePredicate(OpAsmParser &parser,
 
   // Try parsing shortened syntax (div_by<...> or same_elements<...>)
   StringRef attrName;
-  if (failed(parser.parseKeyword(&attrName)))
+  if (failed(parser.parseKeyword(&attrName))) {
     return parser.emitError(loc) << "expected attribute name";
+  }
 
   if (attrName == "div_by") {
     // Reuse existing DivByAttr::parse method
@@ -939,7 +988,7 @@ static ParseResult parseAssumePredicate(OpAsmParser &parser,
   }
 }
 
-static void printAssumePredicate(OpAsmPrinter &p, Operation *op,
+static void printAssumePredicate(OpAsmPrinter &p, Operation *,
                                  AssumePredicateAttrInterface attr) {
   // Print the attribute to a string stream to get the full representation
   std::string attrStr;
@@ -966,8 +1015,9 @@ template <typename OpT>
 static ParseResult
 parseControlFlowRegion(OpAsmParser &p, Region &region,
                        ArrayRef<OpAsmParser::Argument> arguments = {}) {
-  if (failed(p.parseRegion(region, arguments)))
+  if (failed(p.parseRegion(region, arguments))) {
     return failure();
+  }
   OpT::ensureTerminator(region, p.getBuilder(),
                         p.getEncodedSourceLoc(p.getNameLoc()));
   return success();
@@ -998,8 +1048,9 @@ ParseResult parseArgumentRegion(OpAsmParser &parser, Region &region) {
   SmallVector<DictionaryAttr> resultAttrs;
   bool isVariadic;
   if (parseFunctionArgumentList(parser, /*allowVariadic=*/false, arguments,
-                                isVariadic))
+                                isVariadic)) {
     return failure();
+  }
   return parser.parseRegion(region, arguments);
 }
 
@@ -1068,8 +1119,9 @@ printMemoryAttributes(OpAsmPrinter &printer, Operation *,
                       MemoryOrderingSemanticsAttr memoryOrderingSemantics,
                       MemoryScopeAttr memoryScopeAttr) {
   printer << memoryOrderingSemantics.getValue();
-  if (memoryScopeAttr)
+  if (memoryScopeAttr) {
     printer << ' ' << memoryScopeAttr.getValue();
+  }
 }
 
 //===----------------------------------------------------------------------===//
@@ -1091,28 +1143,31 @@ public:
   /// Verify the debug info for a CudaTile function.
   static LogicalResult verifyFunc(FunctionOpInterface func) {
     // Rule 6: Function location must not be a CallSiteLoc.
-    if (isa<CallSiteLoc>(func.getLoc()))
+    if (isa<CallSiteLoc>(func.getLoc())) {
       return func.emitOpError()
              << "invalid function debug info location: " << func.getLoc()
              << ". Function location must not be a CallSiteLoc.";
+    }
 
     // We only need to verify DILocAttr location types.
     if (auto diLoc = getDILoc(func.getLoc())) {
       // Rule 1: If a function has scope, it must have subprogram scope.
       auto subprogram = dyn_cast<DISubprogramAttr>(diLoc.getScope());
-      if (!subprogram)
+      if (!subprogram) {
         return func.emitOpError()
                << "invalid function debug info scope: " << diLoc.getScope()
                << ". Function location must have cuda_tile.di_subprogram "
                   "debug info scope.";
+      }
       // Rule 2: If a function has subprogram scope, the function name must
       // match the subprogram scope linkage name.
-      if (subprogram.getLinkageName() != func.getName())
+      if (subprogram.getLinkageName() != func.getName()) {
         return func.emitOpError()
                << "invalid function debug info scope: " << subprogram
                << ". Function name \"" << func.getName()
                << "\" does not match subprogram scope linkage name "
                << subprogram.getLinkageName() << ".";
+      }
     }
     return success();
   }
@@ -1120,16 +1175,18 @@ public:
   /// Verify the debug info for all ops in a CudaTile function.
   static LogicalResult verifyFuncBody(FunctionOpInterface func) {
     DISubprogramAttr fnSubprogram;
-    if (auto diLoc = getDILoc(func.getLoc()))
+    if (auto diLoc = getDILoc(func.getLoc())) {
       fnSubprogram = getSubprogram(diLoc.getScope());
+    }
 
     // Walk through all operations in the function, including those within
     // control flow regions.
     LogicalResult result = success();
     func.walk([&](Operation *op) {
       DISubprogramAttr opSubprogram;
-      if (auto diLoc = getDILoc(op->getLoc()))
+      if (auto diLoc = getDILoc(op->getLoc())) {
         opSubprogram = getSubprogram(diLoc.getScope());
+      }
 
       if (opSubprogram) {
         // Rule 3: If a function does not have scope, its operations must not
@@ -1158,13 +1215,16 @@ public:
 
   /// Verify the debug info for a CudaTile module.
   static LogicalResult verifyModule(cuda_tile::ModuleOp module) {
-    for (auto &op : module.getOps())
-      if (!isa<FunctionOpInterface>(op))
+    for (auto &op : module.getOps()) {
+      if (!isa<FunctionOpInterface>(op)) {
         // Rule 5: Global variables must not have scope.
-        if (auto diLoc = getDILoc(op.getLoc()))
+        if (auto diLoc = getDILoc(op.getLoc())) {
           return op.emitOpError()
                  << "invalid operation debug info scope: " << diLoc
                  << ". Global variables must not have scope.";
+        }
+      }
+    }
     return success();
   }
 
@@ -1187,9 +1247,11 @@ private:
           return getDILoc(callSiteLoc.getCaller());
         })
         .Case([](FusedLoc fusedLoc) {
-          for (auto subloc : fusedLoc.getLocations())
-            if (auto diLoc = getDILoc(subloc))
+          for (auto subloc : fusedLoc.getLocations()) {
+            if (auto diLoc = getDILoc(subloc)) {
               return diLoc;
+            }
+          }
           return DILocAttr();
         })
         .Case([](NameLoc nameLoc) { return getDILoc(nameLoc.getChildLoc()); })
@@ -1238,8 +1300,9 @@ static inline LogicalResult verifyIEEERoundingModes(OpTy op) {
 }
 
 LogicalResult AddFOp::verify() {
-  if (failed(verifyIEEERoundingModes(*this)))
+  if (failed(verifyIEEERoundingModes(*this))) {
     return failure();
+  }
   return verifyFtz(*this, getFlushToZero());
 }
 
@@ -1281,8 +1344,9 @@ void AssumeOp::getAsmResultNames(OpAsmSetValueNameFn setNameFn) {
     if (auto opAsmOpIface = dyn_cast<OpAsmOpInterface>(producer)) {
       std::string name = "assume_";
       opAsmOpIface.getAsmResultNames([&](Value v, StringRef valueName) {
-        if (v == getValue())
+        if (v == getValue()) {
           name += valueName;
+        }
       });
       setNameFn(getResult(), name);
       return;
@@ -1300,17 +1364,19 @@ LogicalResult AtomicRMWTkoOp::verify() {
       cast<cuda_tile::PointerType>(getPointers().getType().getElementType());
   Type pointeeType = ptrType.getPointeeType();
   Type argElType = getArg().getType().getElementType();
-  if (pointeeType != argElType)
+  if (pointeeType != argElType) {
     return emitOpError("expected pointee type (")
            << pointeeType << ") to match element type of 'arg' (" << argElType
            << ")";
+  }
 
   // We cannot add to AllShapesMatch since it is an optional argument.
   auto mask = getMask();
   if (mask && cast<ShapedType>(mask.getType()).getShape() !=
-                  cast<ShapedType>(getArg().getType()).getShape())
+                  cast<ShapedType>(getArg().getType()).getShape()) {
     return emitOpError(
         "failed to verify that all of {pointers, arg, mask} have same shape");
+  }
 
   // Check compatibility of RMW mode.
   switch (getMode()) {
@@ -1323,30 +1389,35 @@ LogicalResult AtomicRMWTkoOp::verify() {
   case AtomicRMWMode::UMAX:
   case AtomicRMWMode::UMIN: {
     auto integerTy = dyn_cast_or_null<IntegerType>(argElType);
-    if (!integerTy || (!integerTy.isInteger(32) && !integerTy.isInteger(64)))
+    if (!integerTy || (!integerTy.isInteger(32) && !integerTy.isInteger(64))) {
       return emitOpError("'") << stringifyAtomicRMWMode(getMode())
                               << "' works only with integers i32 and i64";
+    }
     break;
   }
   case AtomicRMWMode::ADDF: {
     auto floatTy = dyn_cast_or_null<FloatType>(argElType);
-    if (!floatTy || (!floatTy.isF32() && !floatTy.isF64() && !floatTy.isF16()))
+    if (!floatTy ||
+        (!floatTy.isF32() && !floatTy.isF64() && !floatTy.isF16())) {
       return emitOpError("'") << stringifyAtomicRMWMode(getMode())
                               << "' works only with floats f16, f32, and f64";
+    }
     break;
   }
   case AtomicRMWMode::XCHG: {
     auto integerTy = dyn_cast_or_null<IntegerType>(argElType);
     auto floatTy = dyn_cast_or_null<FloatType>(argElType);
-    if (!integerTy && !floatTy)
+    if (!integerTy && !floatTy) {
       return emitOpError("'")
              << stringifyAtomicRMWMode(getMode())
              << "' works only with integers or float of 32 or 64 bitwidth";
+    }
     int64_t bitwidth = argElType.getIntOrFloatBitWidth();
-    if (bitwidth != 32 && bitwidth != 64)
+    if (bitwidth != 32 && bitwidth != 64) {
       return emitOpError("'")
              << stringifyAtomicRMWMode(getMode())
              << "' works only with integers or float of 32 or 64 bitwidth";
+    }
   }
   }
 
@@ -1372,22 +1443,26 @@ LogicalResult AtomicCASTkoOp::verify() {
       cast<cuda_tile::PointerType>(getPointers().getType().getElementType());
   Type pointeeType = ptrType.getPointeeType();
   Type valElType = getVal().getType().getElementType();
-  if (pointeeType != valElType)
+  if (pointeeType != valElType) {
     return emitOpError("expected pointee type (")
            << pointeeType << ") to match element type of 'val' (" << valElType
            << ")";
-  if (!isa<FloatType>(valElType) && !isa<IntegerType>(valElType))
+  }
+  if (!isa<FloatType>(valElType) && !isa<IntegerType>(valElType)) {
     return emitOpError("expect only float or integer types with 32 or 64 bit");
+  }
   unsigned bitWidth = valElType.getIntOrFloatBitWidth();
-  if (bitWidth != 32 && bitWidth != 64)
+  if (bitWidth != 32 && bitWidth != 64) {
     return emitOpError("expect only float or integer types with 32 or 64 bit");
+  }
 
   // We cannot add to AllShapesMatch since it is an optional argument.
   auto mask = getMask();
   if (mask && cast<ShapedType>(mask.getType()).getShape() !=
-                  cast<ShapedType>(getVal().getType()).getShape())
+                  cast<ShapedType>(getVal().getType()).getShape()) {
     return emitOpError("failed to verify that all of {pointers, val, cmp and "
                        "mask} have same shape");
+  }
 
   auto sem = getMemoryOrderingSemantics();
   // Check if memory ordering semantics is one of the allowed values
@@ -1430,12 +1505,14 @@ LogicalResult BroadcastOp::verify() {
   auto resultTy = getResult().getType();
 
   for (auto [srcDim, resultDim] :
-       llvm::zip_equal(srcTy.getShape(), resultTy.getShape()))
-    if (srcDim != resultDim && srcDim != 1)
+       llvm::zip_equal(srcTy.getShape(), resultTy.getShape())) {
+    if (srcDim != resultDim && srcDim != 1) {
       return emitOpError("expects the shape of source tile to be compatible "
                          "with that of the result tile")
              << ", but got: " << srcTy.getShape() << " and "
              << resultTy.getShape();
+    }
+  }
   return success();
 }
 
@@ -1454,9 +1531,10 @@ LogicalResult CatOp::verify() {
   auto resultTileType = cast<cuda_tile::TileType>(getResult().getType());
   // lhs and rhs have the same rank.
   int64_t rank = lhsTileType.getRank();
-  if (dim < 0 || dim >= rank)
+  if (dim < 0 || dim >= rank) {
     return emitOpError("expect dim to be [0, ")
            << rank << "), but got: " << dim;
+  }
 
   ArrayRef<int64_t> lhsShape = lhsTileType.getShape();
   ArrayRef<int64_t> rhsShape = rhsTileType.getShape();
@@ -1495,10 +1573,12 @@ void ConstantOp::getAsmResultNames(OpAsmSetValueNameFn setNameFn) {
 
   // Sugar i1 constants with 'true' and 'false'.
   if (intType && intType.getWidth() == 1) {
-    if (llvm::all_of(cstAttr.getValues<bool>(), [](bool v) { return v; }))
+    if (llvm::all_of(cstAttr.getValues<bool>(), [](bool v) { return v; })) {
       return setNameFn(getResult(), "true");
-    if (llvm::all_of(cstAttr.getValues<bool>(), [](bool v) { return !v; }))
+    }
+    if (llvm::all_of(cstAttr.getValues<bool>(), [](bool v) { return !v; })) {
       return setNameFn(getResult(), "false");
+    }
     return setNameFn(getResult(), "cst_i1");
   }
 
@@ -1507,9 +1587,9 @@ void ConstantOp::getAsmResultNames(OpAsmSetValueNameFn setNameFn) {
   specialName << "cst";
   if (cstAttr.isSplat() || cstAttr.size() == 1) {
     auto intData = cstAttr.tryGetValues<APInt>();
-    if (succeeded(intData))
+    if (succeeded(intData)) {
       specialName << "_" << *intData->begin();
-    else {
+    } else {
       auto floatData = cstAttr.tryGetValues<APFloat>();
       if (succeeded(floatData)) {
         APFloat fElt = *floatData->begin();
@@ -1523,8 +1603,9 @@ void ConstantOp::getAsmResultNames(OpAsmSetValueNameFn setNameFn) {
                                 /*IsSigned=*/false, llvm::APFloat::rmTowardZero,
                                 &exact);
           uint64_t val = parts[0];
-          if (exact)
+          if (exact) {
             specialName << "_" << val;
+          }
         }
       }
     }
@@ -1547,8 +1628,9 @@ static LogicalResult verifyEarlyExitOp(Operation *earlyExitOp) {
   while (true) {
     parentRegion = parentLoop->getParentRegion();
     parentLoop = parentRegion->getParentOp();
-    if (isa<AllowedLoopOpsT...>(parentLoop))
+    if (isa<AllowedLoopOpsT...>(parentLoop)) {
       break;
+    }
     if (!isa<IfOp>(parentLoop)) {
       InFlightDiagnostic diag = earlyExitOp->emitOpError(
           "can only be nested within a ancestor chain of '");
@@ -1566,8 +1648,9 @@ static LogicalResult verifyEarlyExitOp(Operation *earlyExitOp) {
 
 LogicalResult BreakOp::verify() {
   auto res = verifyEarlyExitOp<LoopOp>(*this);
-  if (failed(res))
+  if (failed(res)) {
     return res;
+  }
 
   // Verify that the operand types match the parent loop results types.
   auto parentLoop = this->getOperation()->getParentOfType<cuda_tile::LoopOp>();
@@ -1588,8 +1671,9 @@ LogicalResult BreakOp::verify() {
 
 LogicalResult ContinueOp::verify() {
   auto res = verifyEarlyExitOp<ForOp, LoopOp>(*this);
-  if (failed(res))
+  if (failed(res)) {
     return res;
+  }
 
   // Find the nearest ancestor loop (can be LoopOp or ForOp)
   Region *parentRegion = nullptr;
@@ -1632,11 +1716,12 @@ LogicalResult GetIndexSpaceShapeOp::verify() {
   TileView srcType = getSrc().getType();
 
   auto results = getResultTypes();
-  if (results.size() != srcType.getViewIndexRank())
+  if (results.size() != srcType.getViewIndexRank()) {
     return emitOpError("expected ")
            << srcType.getViewIndexRank()
            << " results due to view index space rank, but got "
            << results.size();
+  }
 
   return success();
 }
@@ -1651,26 +1736,31 @@ void GetIndexSpaceShapeOp::print(OpAsmPrinter &p) {
 ParseResult GetIndexSpaceShapeOp::parse(OpAsmParser &parser,
                                         OperationState &result) {
   OpAsmParser::UnresolvedOperand src;
-  if (parser.parseOperand(src) || parser.parseColon())
+  if (parser.parseOperand(src) || parser.parseColon()) {
     return failure();
+  }
 
   Type resultType;
   Type srcType;
   SMLoc srcTypeLoc = parser.getCurrentLocation();
   if (parseCudaTileType(parser, srcType) || parser.parseArrow() ||
-      parseCudaTileType(parser, resultType))
+      parseCudaTileType(parser, resultType)) {
     return failure();
+  }
 
   TileView srcTensorViewType = llvm::dyn_cast<TileView>(srcType);
-  if (!srcTensorViewType)
+  if (!srcTensorViewType) {
     return parser.emitError(srcTypeLoc, "expected tile view, got ") << srcType;
+  }
 
-  if (failed(parser.resolveOperand(src, srcType, result.operands)))
+  if (failed(parser.resolveOperand(src, srcType, result.operands))) {
     return failure();
+  }
 
   size_t rank = srcTensorViewType.getViewIndexRank();
-  for (size_t i = 0; i < rank; i++)
+  for (size_t i = 0; i < rank; i++) {
     result.addTypes(resultType);
+  }
 
   return success();
 }
@@ -1683,10 +1773,11 @@ LogicalResult GetTensorShapeOp::verify() {
   TensorViewType srcType = getSrc().getType();
 
   auto results = getResultTypes();
-  if (results.size() != srcType.getShape().size())
+  if (results.size() != srcType.getShape().size()) {
     return emitOpError("expected ")
            << srcType.getShape().size()
            << " results due to tensor rank, but got " << results.size();
+  }
 
   return success();
 }
@@ -1701,27 +1792,32 @@ void GetTensorShapeOp::print(OpAsmPrinter &p) {
 ParseResult GetTensorShapeOp::parse(OpAsmParser &parser,
                                     OperationState &result) {
   OpAsmParser::UnresolvedOperand src;
-  if (parser.parseOperand(src) || parser.parseColon())
+  if (parser.parseOperand(src) || parser.parseColon()) {
     return failure();
+  }
 
   Type resultType;
   Type srcType;
   SMLoc srcTypeLoc = parser.getCurrentLocation();
   if (parseCudaTileType(parser, srcType) || parser.parseArrow() ||
-      parseCudaTileType(parser, resultType))
+      parseCudaTileType(parser, resultType)) {
     return failure();
+  }
 
   TensorViewType srcTensorViewType = llvm::dyn_cast<TensorViewType>(srcType);
-  if (!srcTensorViewType)
+  if (!srcTensorViewType) {
     return parser.emitError(srcTypeLoc, "expected tensor_view, got ")
            << srcType;
+  }
 
-  if (failed(parser.resolveOperand(src, srcType, result.operands)))
+  if (failed(parser.resolveOperand(src, srcType, result.operands))) {
     return failure();
+  }
 
   size_t rank = srcTensorViewType.getShape().size();
-  for (size_t i = 0; i < rank; i++)
+  for (size_t i = 0; i < rank; i++) {
     result.addTypes(resultType);
+  }
 
   return success();
 }
@@ -1776,8 +1872,9 @@ LogicalResult ExtIOp::verify() {
   IntegerType from = cast<IntegerType>(getFrom().getType().getElementType());
   IntegerType to = cast<IntegerType>(getTo().getType().getElementType());
 
-  if (to.getWidth() <= from.getWidth())
+  if (to.getWidth() <= from.getWidth()) {
     return emitOpError("extending to smaller or identical integer");
+  }
 
   return success();
 }
@@ -1789,15 +1886,18 @@ LogicalResult ExtIOp::verify() {
 LogicalResult ExtractOp::verify() {
   cuda_tile::TileType sourceType = getSource().getType();
   cuda_tile::TileType resultType = getResult().getType();
-  if (sourceType.getElementType() != resultType.getElementType())
+  if (sourceType.getElementType() != resultType.getElementType()) {
     return emitOpError("source and result element type do not match");
-  for (int i = 0, e = static_cast<int>(sourceType.getRank()); i < e; ++i) {
-    if (sourceType.getDimSize(i) % resultType.getDimSize(i) != 0)
-      return emitOpError("result dim size must divide source dim size evenly");
   }
-  if (static_cast<int64_t>(getIndices().size()) != sourceType.getRank())
+  for (int64_t i = 0, e = sourceType.getRank(); i < e; ++i) {
+    if (sourceType.getDimSize(i) % resultType.getDimSize(i) != 0) {
+      return emitOpError("result dim size must divide source dim size evenly");
+    }
+  }
+  if (static_cast<int64_t>(getIndices().size()) != sourceType.getRank()) {
     return emitOpError("incorrect number of indices, expected ")
            << sourceType.getRank() << ", but found " << getIndices().size();
+  }
   return success();
 }
 
@@ -1807,9 +1907,10 @@ LogicalResult ExtractOp::verify() {
 
 LogicalResult IToFOp::verify() {
   auto rounding = getRoundingMode();
-  if (rounding != RoundingMode::NEAREST_EVEN)
+  if (rounding != RoundingMode::NEAREST_EVEN) {
     return emitOpError("invalid rounding error specified. Only "
                        "'nearest_even' is supported");
+  }
   return success();
 }
 
@@ -1824,53 +1925,60 @@ LogicalResult verifyMmaShapes(MmaOpT op) {
   cuda_tile::TileType accType = op.getAcc().getType();
 
   // Check shapes. Tablegen has AllRanksMatch constraint.
-  if (lhsType.getRank() != 2 && lhsType.getRank() != 3)
+  if (lhsType.getRank() != 2 && lhsType.getRank() != 3) {
     return op.emitOpError("operands must be 2D or 3D tiles");
+  }
 
   int batched = static_cast<int>(lhsType.getRank() == 3);
   if (batched) {
-    if (lhsType.getShape()[0] != rhsType.getShape()[0])
+    if (lhsType.getShape()[0] != rhsType.getShape()[0]) {
       return op.emitOpError("shape error: dim 0 of lhs (")
              << lhsType.getShape()[0] << ") and dim 0 of rhs ("
              << rhsType.getShape()[0] << ") must match, but got lhs shape ("
              << lhsType.getShape() << ") and rhs shape (" << rhsType.getShape()
              << ")";
-    if (lhsType.getShape()[0] != accType.getShape()[0])
+    }
+    if (lhsType.getShape()[0] != accType.getShape()[0]) {
       return op.emitOpError("shape error: dim 0 of lhs (")
              << lhsType.getShape()[0] << ") and dim 0 of acc ("
              << accType.getShape()[0] << ") must match, but got lhs shape ("
              << lhsType.getShape() << ") and acc shape (" << accType.getShape()
              << ")";
+    }
   }
   int rowDim = batched + 0;
   int colDim = batched + 1;
-  if (lhsType.getShape()[colDim] != rhsType.getShape()[rowDim])
+  if (lhsType.getShape()[colDim] != rhsType.getShape()[rowDim]) {
     return op.emitOpError(" shape error: dim ")
            << colDim << " of lhs (" << lhsType.getShape()[colDim]
            << ") and dim " << rowDim << " of rhs ("
            << rhsType.getShape()[rowDim] << ") must match, but got lhs shape ("
            << lhsType.getShape() << ") and rhs shape (" << rhsType.getShape()
            << ")";
-  if (lhsType.getShape()[rowDim] != accType.getShape()[rowDim])
+  }
+  if (lhsType.getShape()[rowDim] != accType.getShape()[rowDim]) {
     return op.emitOpError(" shape error: dim ")
            << rowDim << " of lhs (" << lhsType.getShape()[rowDim]
            << ") and dim " << rowDim << " of acc ("
            << accType.getShape()[rowDim] << ") must match, but got lhs shape ("
            << lhsType.getShape() << ") and acc shape (" << accType.getShape()
            << ")";
-  if (rhsType.getShape()[colDim] != accType.getShape()[colDim])
+  }
+  if (rhsType.getShape()[colDim] != accType.getShape()[colDim]) {
     return op.emitOpError(" shape error: dim ")
            << colDim << " of rhs (" << rhsType.getShape()[colDim]
            << ") and dim " << colDim << " of acc ("
            << accType.getShape()[colDim] << ") must match, but got rhs shape ("
            << rhsType.getShape() << ") and acc shape (" << accType.getShape()
            << ")";
+  }
   return success();
 }
 
 LogicalResult MmaFOp::verify() {
-  if (failed(verifyMmaShapes(*this)))
+  if (failed(verifyMmaShapes(*this))) {
     return failure();
+  }
 
   cuda_tile::TileType lhsType = getLhs().getType();
   cuda_tile::TileType accType = getAcc().getType();
@@ -1905,13 +2013,14 @@ LogicalResult MmaFOp::verify() {
   for (const auto &allowedMMAType : allowedMMATypes) {
     if (allowedMMAType.inputType == lhsType.getElementType()) {
       if (!llvm::is_contained(allowedMMAType.allowedOutputTypes,
-                              accType.getElementType()))
+                              accType.getElementType())) {
         return emitOpError(
                    "unsupported combination of element types. Input type ")
                << lhsType.getElementType()
                << " expects accumulator/result type to be one of {"
                << allowedMMAType.allowedOutputTypes << "}, but got "
                << accType.getElementType();
+      }
       checked = true;
       break;
     }
@@ -1945,8 +2054,9 @@ LogicalResult Exp2Op::verify() { return verifyFtz(*this, getFlushToZero()); }
 //===----------------------------------------------------------------------===//
 
 LogicalResult FmaOp::verify() {
-  if (failed(verifyIEEERoundingModes(*this)))
+  if (failed(verifyIEEERoundingModes(*this))) {
     return failure();
+  }
   return verifyFtz(*this, getFlushToZero());
 }
 
@@ -1967,34 +2077,39 @@ static LogicalResult verifyLoopIterValues(LoopOpT op, ResultRange results,
   }
 
   for (auto [index, initArg, iterArg] : llvm::enumerate(loopInits, iterVals)) {
-    if (isa<TensorViewType>(iterArg.getType()))
+    if (isa<TensorViewType>(iterArg.getType())) {
       return op.emitOpError() << "loop-carried value " << index
                               << " is a tensor_view, "
                                  "which is not supported";
+    }
 
-    if (isa<TileView>(iterArg.getType()))
+    if (isa<TileView>(iterArg.getType())) {
       return op.emitOpError() << "loop-carried value " << index
                               << " is a tile view, "
                                  "which is not supported";
+    }
 
-    if (initArg.getType() != iterArg.getType())
+    if (initArg.getType() != iterArg.getType()) {
       return op.emitOpError()
              << "init value " << index << " and region iter_value " << index
              << " have different type: " << initArg.getType()
              << " != " << iterArg.getType();
+    }
   }
 
   // Verify that results are not tensor_view or tile_view.
   for (auto [index, result] : llvm::enumerate(results)) {
-    if (isa<TensorViewType>(result.getType()))
+    if (isa<TensorViewType>(result.getType())) {
       return op.emitOpError() << "result type " << index
                               << " is a tensor_view, "
                                  "which is not supported";
+    }
 
-    if (isa<TileView>(result.getType()))
+    if (isa<TileView>(result.getType())) {
       return op.emitOpError() << "result type " << index
                               << " is a tile view, "
                                  "which is not supported";
+    }
   }
 
   return success();
@@ -2046,9 +2161,10 @@ void ForOp::build(
 
 LogicalResult ForOp::verifyRegions() {
   // First block argument must be the induction variable.
-  if (getNumRegionArgs() == 0)
+  if (getNumRegionArgs() == 0) {
     return emitOpError(
         "expected at least one block argument for induction variable");
+  }
   Value indVar = getInductionVar(), lowerBound = getLowerBound();
   if (indVar.getType() != lowerBound.getType()) {
     return emitOpError("expected induction variable to be same type as bounds "
@@ -2065,8 +2181,9 @@ void ForOp::print(OpAsmPrinter &p) {
     << getUpperBound() << ", step " << getStep() << ") : ";
   printCudaTileType(p, inductionVar.getType());
   p << " ";
-  if (OperandRange initVals = getInitValues(); !initVals.empty())
+  if (OperandRange initVals = getInitValues(); !initVals.empty()) {
     printLoopIteratorValues(p, initVals, getRegionIterValues());
+  }
 
   printControlFlowRegion<ContinueOp>(p, *this, getRegion());
   p.printOptionalAttrDict((*this)->getAttrs());
@@ -2085,8 +2202,10 @@ ParseResult ForOp::parse(OpAsmParser &parser, OperationState &result) {
       parser.parseKeyword("to") || parser.parseOperand(ub) ||
       parser.parseComma() || parser.parseKeyword("step") ||
       parser.parseOperand(step) || parser.parseRParen() ||
-      parser.parseColon() || parseCudaTileType(parser, inductionVariable.type))
+      parser.parseColon() ||
+      parseCudaTileType(parser, inductionVariable.type)) {
     return failure();
+  }
 
   // Parse the optional initial iteration arguments.
   SmallVector<OpAsmParser::Argument, 4> regionArgs(1, inductionVariable);
@@ -2094,8 +2213,9 @@ ParseResult ForOp::parse(OpAsmParser &parser, OperationState &result) {
     // Parse assignment list and results type list.
     if (parser.parseAssignmentList(regionArgs, iterOperands) ||
         parser.parseArrow() || parser.parseLParen() ||
-        parseCudaTileType(parser, result.types) || parser.parseRParen())
+        parseCudaTileType(parser, result.types) || parser.parseRParen()) {
       return failure();
+    }
     if (iterOperands.size() != result.types.size()) {
       return parser.emitError(
           parser.getNameLoc(),
@@ -2112,30 +2232,34 @@ ParseResult ForOp::parse(OpAsmParser &parser, OperationState &result) {
 
   // Parse the body region.
   if (parseControlFlowRegion<ForOp>(parser, *result.addRegion(), regionArgs) ||
-      parser.parseOptionalAttrDict(result.attributes))
+      parser.parseOptionalAttrDict(result.attributes)) {
     return failure();
+  }
 
   // Resolve operands.
   if (parser.resolveOperands({lb, ub, step}, inductionVariable.type,
                              result.operands) ||
       parser.resolveOperands(iterOperands, result.types, parser.getNameLoc(),
-                             result.operands))
+                             result.operands)) {
     return failure();
+  }
 
   return success();
 }
 
 void ForOp::getAsmResultNames(OpAsmSetValueNameFn setNameFn) {
-  if (getNumResults())
+  if (getNumResults()) {
     setNameFn(getResult(0), "for");
+  }
 }
 
 void ForOp::getAsmBlockArgumentNames(Region &region,
                                      OpAsmSetValueNameFn setNameFn) {
   setNameFn(getInductionVar(), "loopIdx");
   for (auto [index, arg] :
-       llvm::enumerate(llvm::drop_begin(region.getArguments())))
+       llvm::enumerate(llvm::drop_begin(region.getArguments()))) {
     setNameFn(arg, "iterArg" + std::to_string(index));
+  }
 }
 
 //===----------------------------------------------------------------------===//
@@ -2144,9 +2268,10 @@ void ForOp::getAsmBlockArgumentNames(Region &region,
 
 LogicalResult FToIOp::verify() {
   auto rounding = getRoundingMode();
-  if (rounding != RoundingMode::NEAREST_INT_TO_ZERO)
+  if (rounding != RoundingMode::NEAREST_INT_TO_ZERO) {
     return emitOpError("invalid rounding error specified. Only "
                        "'nearest_int_to_zero' is supported");
+  }
   return success();
 }
 
@@ -2155,12 +2280,14 @@ LogicalResult FToIOp::verify() {
 //===----------------------------------------------------------------------===//
 
 LogicalResult FToFOp::verify() {
-  if (getFrom().getType() == getTo().getType())
+  if (getFrom().getType() == getTo().getType()) {
     return emitOpError("converting tiles must not be a no-op");
+  }
   auto rounding = getRoundingMode();
-  if (rounding != RoundingMode::NEAREST_EVEN)
+  if (rounding != RoundingMode::NEAREST_EVEN) {
     return emitOpError("invalid rounding mode specified for ftof. Only "
                        "'nearest_even' is supported");
+  }
   return success();
 }
 
@@ -2174,8 +2301,9 @@ ParseResult EntryOp::parse(OpAsmParser &parser, OperationState &result) {
   // Parse the name as a symbol.
   StringAttr nameAttr;
   if (parser.parseSymbolName(nameAttr, SymbolTable::getSymbolAttrName(),
-                             result.attributes))
+                             result.attributes)) {
     return failure();
+  }
 
   // Parse the function signature using custom parsing that supports both
   // short form (tile<ptr<f32>>) and long form (!cuda_tile.tile<ptr<f32>>) types
@@ -2192,8 +2320,9 @@ ParseResult EntryOp::parse(OpAsmParser &parser, OperationState &result) {
   // in function signatures.
   if (parseFunctionSignatureWithArguments(parser, /*allowVariadic=*/false,
                                           entryArgs, isVariadic, resultTypes,
-                                          resultAttrs))
+                                          resultAttrs)) {
     return failure();
+  }
 
   SmallVector<Type> argTypes = llvm::to_vector(llvm::map_range(
       entryArgs, [](OpAsmParser::Argument arg) -> Type { return arg.type; }));
@@ -2210,29 +2339,34 @@ ParseResult EntryOp::parse(OpAsmParser &parser, OperationState &result) {
 
   // Parse OptimizationHints attribute
   if (succeeded(parser.parseOptionalKeyword(kOptimizationHintsAttr))) {
-    if (parser.parseEqual())
+    if (parser.parseEqual()) {
       return failure();
+    }
     Attribute opt_hint = OptimizationHintsAttr::parse(parser, Type{});
-    if (opt_hint)
+    if (opt_hint) {
       result.addAttribute(getOptimizationHintsAttrName(result.name), opt_hint);
-    else
+    } else {
       return failure();
+    }
   }
 
   // Parse the function body.
   Region *body = result.addRegion();
   ParseResult parseResult = parser.parseRegion(*body, entryArgs,
                                                /*enableNameShadowing=*/false);
-  if (failed(parseResult))
+  if (failed(parseResult)) {
     return failure();
+  }
 
-  if (body->empty())
+  if (body->empty()) {
     body->emplaceBlock();
+  }
 
   ensureTerminator(*body, builder, result.location);
 
-  if (failed(parser.parseOptionalAttrDict(result.attributes)))
+  if (failed(parser.parseOptionalAttrDict(result.attributes))) {
     return failure();
+  }
 
   return success();
 }
@@ -2264,24 +2398,28 @@ void EntryOp::print(OpAsmPrinter &printer) {
 }
 
 LogicalResult EntryOp::verify() {
-  if (getNumResults() != 0)
+  if (getNumResults() != 0) {
     return emitOpError("entry op must not return values");
+  }
 
   for (Type operandTy : getArgumentTypes()) {
     auto tileTy = dyn_cast<cuda_tile::TileType>(operandTy);
-    if (tileTy && tileTy.getRank() != 0)
+    if (tileTy && tileTy.getRank() != 0) {
       return emitOpError("entry op must have "
                          "scalar types (rank 0 !cuda_tile.tile)");
+    }
   }
 
-  if (failed(impl::verifyFuncDebugInfo(*this)))
+  if (failed(impl::verifyFuncDebugInfo(*this))) {
     return failure();
+  }
   return verifyOptHintsCommon(this);
 }
 
 LogicalResult EntryOp::verifyRegions() {
-  if (failed(impl::verifyFuncBodyDebugInfo(*this)))
+  if (failed(impl::verifyFuncBodyDebugInfo(*this))) {
     return failure();
+  }
   return success();
 }
 
@@ -2290,8 +2428,9 @@ LogicalResult EntryOp::verifyRegions() {
 //===----------------------------------------------------------------------===//
 
 LogicalResult GlobalOp::verify() {
-  if (getValue().getType().getRank() != 1)
+  if (getValue().getType().getRank() != 1) {
     return emitOpError("type must have rank 1");
+  }
   return success();
 }
 
@@ -2303,17 +2442,19 @@ LogicalResult
 GetGlobalOp::verifySymbolUses(SymbolTableCollection &symbolTable) {
   auto global =
       symbolTable.lookupNearestSymbolFrom<GlobalOp>(*this, getNameAttr());
-  if (!global)
+  if (!global) {
     return emitOpError("'")
            << getName() << "' does not reference a valid global";
+  }
 
   Type globalElType = global.getValue().getType().getElementType();
   auto resultType = cast<cuda_tile::PointerType>(
       cast<cuda_tile::TileType>(getResult().getType()).getElementType());
-  if (globalElType != resultType.getPointeeType())
+  if (globalElType != resultType.getPointeeType()) {
     return emitOpError("pointee type of result type ")
            << resultType << " does not match type " << globalElType
            << " of the global @" << getName();
+  }
 
   return success();
 }
@@ -2323,8 +2464,9 @@ GetGlobalOp::verifySymbolUses(SymbolTableCollection &symbolTable) {
 //===----------------------------------------------------------------------===//
 
 LogicalResult IfOp::verify() {
-  if (getRegions().empty())
+  if (getRegions().empty()) {
     return emitOpError("must define then branch");
+  }
 
   bool hasResults = getNumResults() != 0;
   auto retTypes = getResultTypes();
@@ -2335,36 +2477,43 @@ LogicalResult IfOp::verify() {
     auto yield = dyn_cast<YieldOp>(region.front().back());
     if (yield) {
       auto yieldTypes = yield->getOperandTypes();
-      if (hasResults && yieldTypes.empty())
+      if (hasResults && yieldTypes.empty()) {
         return emitOpError("has return type of ")
                << retTypes << " but " << name
                << " branch does not yield anything";
-      if (!hasResults && !yieldTypes.empty())
+      }
+      if (!hasResults && !yieldTypes.empty()) {
         return emitOpError("does not return a value, but ")
                << name << " branch yields " << yieldTypes;
-      if (yieldTypes != retTypes)
+      }
+      if (yieldTypes != retTypes) {
         return emitOpError("type does not match yield type, ")
                << name << " branch yields " << yieldTypes
                << " but op result type is " << retTypes;
+      }
     }
     return success();
   };
 
   for (const auto &[i, retType] : llvm::enumerate(retTypes)) {
-    if (isa<TensorViewType>(retType))
+    if (isa<TensorViewType>(retType)) {
       return emitOpError("result type ")
              << i << " is a tensor_view, which is not supported";
-    if (isa<TileView>(retType))
+    }
+    if (isa<TileView>(retType)) {
       return emitOpError("result type ")
              << i << " is a tile view, which is not supported";
+    }
   }
 
   Region &thenRegion = getThenRegion();
-  if (thenRegion.empty())
+  if (thenRegion.empty()) {
     return emitOpError("must define then branch");
+  }
   LogicalResult thenCheck = checkRegionYieldTypes(thenRegion, "then");
-  if (failed(thenCheck))
+  if (failed(thenCheck)) {
     return thenCheck;
+  }
 
   Region &elseRegion = getElseRegion();
   if (elseRegion.empty()) {
@@ -2393,15 +2542,18 @@ Operation *IfOp::getElseTerminator() {
 /// tile<i1> is expected for defining ConstantOp
 static std::optional<bool> getConstantBoolValue(mlir::Value value) {
   auto cond = value.getDefiningOp<cuda_tile::ConstantOp>();
-  if (!cond)
+  if (!cond) {
     return std::nullopt;
+  }
   auto type = cond.getType().getElementType();
   auto intType = llvm::dyn_cast<IntegerType>(type);
-  if (!intType || intType.getWidth() != 1)
+  if (!intType || intType.getWidth() != 1) {
     return std::nullopt;
+  }
   DenseTypedElementsAttr cstAttr = cond.getValue();
-  if (cstAttr.size() != 1)
+  if (cstAttr.size() != 1) {
     return std::nullopt;
+  }
   return *cstAttr.getValues<bool>().begin();
 }
 
@@ -2457,16 +2609,19 @@ static LogicalResult replaceOpWithRegion(PatternRewriter &rewriter,
 LogicalResult IfOp::fold(FoldAdaptor adaptor,
                          SmallVectorImpl<OpFoldResult> &results) {
   // if (!c) then A() else B() -> if c then B() else A()
-  if (getElseRegion().empty())
+  if (getElseRegion().empty()) {
     return failure();
+  }
 
   XOrIOp xorStmt = getCondition().getDefiningOp<XOrIOp>();
-  if (!xorStmt)
+  if (!xorStmt) {
     return failure();
+  }
 
   auto one = getConstantBoolValue(xorStmt.getRhs());
-  if (!one || !one.value())
+  if (!one || !one.value()) {
     return failure();
+  }
 
   getConditionMutable().assign(xorStmt.getLhs());
   Block *thenBlock = &getThenRegion().front();
@@ -2490,13 +2645,16 @@ struct RemoveStaticCondition : public OpRewritePattern<IfOp> {
                                 PatternRewriter &rewriter) const override {
     // Get condition value from ConstantOp
     auto condition = getConstantBoolValue(op.getCondition());
-    if (!condition)
+    if (!condition) {
       return failure();
+    }
 
-    if (condition.value())
+    if (condition.value()) {
       return replaceOpWithRegion(rewriter, op, op.getThenRegion());
-    if (!op.getElseRegion().empty())
+    }
+    if (!op.getElseRegion().empty()) {
       return replaceOpWithRegion(rewriter, op, op.getElseRegion());
+    }
 
     rewriter.eraseOp(op);
     return success();
@@ -2513,8 +2671,9 @@ struct ConvertToSelect : public OpRewritePattern<IfOp> {
 
   LogicalResult matchAndRewrite(IfOp op,
                                 PatternRewriter &rewriter) const override {
-    if (op->getNumResults() == 0)
+    if (op->getNumResults() == 0) {
       return failure();
+    }
 
     auto cond = op.getCondition();
     auto thenTerminator = op.getThenTerminator();
@@ -2522,8 +2681,9 @@ struct ConvertToSelect : public OpRewritePattern<IfOp> {
     bool thenYield = llvm::isa<YieldOp>(thenTerminator);
     bool elseYield = llvm::isa<YieldOp>(elseTerminator);
     // If there is no YieldOp at all - nothing to do
-    if (!thenYield && !elseYield)
+    if (!thenYield && !elseYield) {
       return failure();
+    }
 
     // If branch has non-YieldOp - take the same yield args both for then & else
     auto thenYieldArgs = thenYield ? thenTerminator->getOperands()
@@ -2539,19 +2699,22 @@ struct ConvertToSelect : public OpRewritePattern<IfOp> {
     if (!llvm::all_of(op->getResultTypes(), [](Type ty) {
           auto tileType = llvm::dyn_cast<TileType>(ty);
           return tileType && tileType.getShape().empty();
-        }))
+        })) {
       return failure();
+    }
 
     SmallVector<Type> nonHoistable;
     for (auto [trueVal, falseVal] : llvm::zip(thenYieldArgs, elseYieldArgs)) {
       if (thenRegion == trueVal.getParentRegion() ||
-          elseRegion == falseVal.getParentRegion())
+          elseRegion == falseVal.getParentRegion()) {
         nonHoistable.push_back(trueVal.getType());
+      }
     }
     // Early exit if there aren't any yielded values we can
     // hoist outside the if.
-    if (nonHoistable.size() == op->getNumResults())
+    if (nonHoistable.size() == op->getNumResults()) {
       return failure();
+    }
 
     IfOp replacement = IfOp::create(rewriter, op.getLoc(), nonHoistable, cond);
     replacement.getThenRegion().takeBody(op.getThenRegion());
@@ -2577,11 +2740,12 @@ struct ConvertToSelect : public OpRewritePattern<IfOp> {
         results[it.index()] = replacement.getResult(trueYields.size());
         trueYields.push_back(trueVal);
         falseYields.push_back(falseVal);
-      } else if (trueVal == falseVal)
+      } else if (trueVal == falseVal) {
         results[it.index()] = trueVal;
-      else
+      } else {
         results[it.index()] =
             SelectOp::create(rewriter, op.getLoc(), cond, trueVal, falseVal);
+      }
     }
 
     if (thenYield) {
@@ -2626,16 +2790,18 @@ struct RemoveUnusedResults : public OpRewritePattern<IfOp> {
   /// Additional support for non-YieldOp terminator inside transferBody()
   LogicalResult matchAndRewrite(IfOp op,
                                 PatternRewriter &rewriter) const override {
-    if (op.getNumResults() == 0)
+    if (op.getNumResults() == 0) {
       return failure();
+    }
 
     auto thenTerminator = op.getThenTerminator();
     auto elseTerminator = op.getElseTerminator();
     bool thenYield = llvm::isa<YieldOp>(thenTerminator);
     bool elseYield = llvm::isa<YieldOp>(elseTerminator);
     // If there is no YieldOp at all - nothing to do
-    if (!thenYield && !elseYield)
+    if (!thenYield && !elseYield) {
       return failure();
+    }
 
     // Compute the list of used results.
     SmallVector<OpResult, 4> usedResults;
@@ -2643,8 +2809,9 @@ struct RemoveUnusedResults : public OpRewritePattern<IfOp> {
                   [](OpResult result) { return !result.use_empty(); });
 
     // Replace the operation if only a subset of its results have uses.
-    if (usedResults.size() == op.getNumResults())
+    if (usedResults.size() == op.getNumResults()) {
       return failure();
+    }
 
     // Compute the result types of the replacement operation.
     SmallVector<Type, 4> newTypes;
@@ -2664,8 +2831,9 @@ struct RemoveUnusedResults : public OpRewritePattern<IfOp> {
 
     // Replace the operation by the new one.
     SmallVector<Value, 4> repResults(op.getNumResults());
-    for (const auto &en : llvm::enumerate(usedResults))
+    for (const auto &en : llvm::enumerate(usedResults)) {
       repResults[en.value().getResultNumber()] = newOp.getResult(en.index());
+    }
     rewriter.replaceOp(op, repResults);
 
     return success();
@@ -2680,8 +2848,9 @@ struct ReplaceYieldWithValue : public OpRewritePattern<IfOp> {
   LogicalResult matchAndRewrite(IfOp op,
                                 PatternRewriter &rewriter) const override {
     // Early exit if there are no results that could be replaced.
-    if (op.getNumResults() == 0)
+    if (op.getNumResults() == 0) {
       return failure();
+    }
 
     auto thenTerminator = op.getThenTerminator();
     auto elseTerminator = op.getElseTerminator();
@@ -2690,8 +2859,9 @@ struct ReplaceYieldWithValue : public OpRewritePattern<IfOp> {
     // IF there is non-YieldOp terminator - this case is not supported here
     // and suitable YieldOp + ReturnOp patterns are handled inside
     // canonicalizeIfOpConvertToSelect
-    if (!thenYield || !elseYield)
+    if (!thenYield || !elseYield) {
       return failure();
+    }
 
     auto thenYieldArgs = thenTerminator->getOperands();
     auto elseYieldArgs = elseTerminator->getOperands();
@@ -2711,8 +2881,9 @@ struct ReplaceYieldWithValue : public OpRewritePattern<IfOp> {
 
       auto trueVal = getConstantBoolValue(trueResult);
       auto falseVal = getConstantBoolValue(falseResult);
-      if (!trueVal || !falseVal)
+      if (!trueVal || !falseVal) {
         continue;
+      }
       if (!*trueVal && *falseVal) {
         if (!opResult.use_empty()) {
           TileType constType = TileType::get({}, rewriter.getI1Type());
@@ -2745,12 +2916,14 @@ struct CombineIfs : public OpRewritePattern<IfOp> {
   LogicalResult matchAndRewrite(IfOp nextIf,
                                 PatternRewriter &rewriter) const override {
     Block *parent = nextIf->getBlock();
-    if (nextIf == &parent->front())
+    if (nextIf == &parent->front()) {
       return failure();
+    }
 
     auto prevIf = dyn_cast<IfOp>(nextIf->getPrevNode());
-    if (!prevIf)
+    if (!prevIf) {
       return failure();
+    }
 
     // Determine the logical then/else blocks when prevIf's
     // condition is used. Null means the block does not exist
@@ -2760,35 +2933,41 @@ struct CombineIfs : public OpRewritePattern<IfOp> {
     Block *nextElse = nullptr;
     if (nextIf.getCondition() == prevIf.getCondition()) {
       nextThen = nextIf.getThenBlock();
-      if (!nextIf.getElseRegion().empty())
+      if (!nextIf.getElseRegion().empty()) {
         nextElse = nextIf.getElseBlock();
+      }
     }
     if (XOrIOp notv = nextIf.getCondition().getDefiningOp<XOrIOp>()) {
       auto one = getConstantBoolValue(notv.getRhs());
       if (one && one.value() && notv.getLhs() == prevIf.getCondition()) {
         nextElse = nextIf.getThenBlock();
-        if (!nextIf.getElseRegion().empty())
+        if (!nextIf.getElseRegion().empty()) {
           nextThen = nextIf.getElseBlock();
+        }
       }
     }
     if (XOrIOp notv = prevIf.getCondition().getDefiningOp<XOrIOp>()) {
       auto one = getConstantBoolValue(notv.getRhs());
       if (one && one.value() && notv.getLhs() == nextIf.getCondition()) {
         nextElse = nextIf.getThenBlock();
-        if (!nextIf.getElseRegion().empty())
+        if (!nextIf.getElseRegion().empty()) {
           nextThen = nextIf.getElseBlock();
+        }
       }
     }
 
     // First If ends with ReturnOp/ContinueOp/BreakOp
     // no need to take next block from nextIf
-    if (isTerminatorForParent(prevIf.getThenTerminator()))
+    if (isTerminatorForParent(prevIf.getThenTerminator())) {
       nextThen = nullptr;
-    if (isTerminatorForParent(prevIf.getElseTerminator()))
+    }
+    if (isTerminatorForParent(prevIf.getElseTerminator())) {
       nextElse = nullptr;
+    }
 
-    if (!nextThen && !nextElse)
+    if (!nextThen && !nextElse) {
       return failure();
+    }
 
     // Initialize prevThenYielded & prevElseYielded with
     // prevIf.getResults(), so that llvm::zip() below will not be
@@ -2796,14 +2975,16 @@ struct CombineIfs : public OpRewritePattern<IfOp> {
     // only when nextThen/nextElse are true (so when be properly initialized)
     SmallVector<Value> prevThenYielded = prevIf.getResults();
     SmallVector<Value> prevElseYielded = prevIf.getResults();
-    if (nextThen && !prevIf.getThenRegion().empty())
+    if (nextThen && !prevIf.getThenRegion().empty()) {
       prevThenYielded = prevIf.getThenTerminator()->getOperands();
-    if (nextElse && !prevIf.getElseRegion().empty())
+    }
+    if (nextElse && !prevIf.getElseRegion().empty()) {
       prevElseYielded = prevIf.getElseTerminator()->getOperands();
+    }
     // Replace all uses of return values of op within nextIf with the
     // corresponding yields
     for (auto it :
-         llvm::zip(prevIf.getResults(), prevThenYielded, prevElseYielded))
+         llvm::zip(prevIf.getResults(), prevThenYielded, prevElseYielded)) {
       for (OpOperand &use :
            llvm::make_early_inc_range(std::get<0>(it).getUses())) {
         if (nextThen && nextThen->getParent()->isAncestor(
@@ -2818,6 +2999,7 @@ struct CombineIfs : public OpRewritePattern<IfOp> {
           rewriter.finalizeOpModification(use.getOwner());
         }
       }
+    }
 
     SmallVector<Type> mergedTypes(prevIf.getResultTypes());
     llvm::append_range(mergedTypes, nextIf.getResultTypes());
@@ -2840,10 +3022,12 @@ struct CombineIfs : public OpRewritePattern<IfOp> {
         llvm::append_range(mergedYields, thenYield2.getOperands());
         YieldOp::create(rewriter, thenYield2.getLoc(), mergedYields);
       }
-      if (thenYield)
+      if (thenYield) {
         rewriter.eraseOp(thenYield);
-      if (thenYield2)
+      }
+      if (thenYield2) {
         rewriter.eraseOp(thenYield2);
+      }
     }
 
     rewriter.inlineRegionBefore(prevIf.getElseRegion(),
@@ -2868,20 +3052,23 @@ struct CombineIfs : public OpRewritePattern<IfOp> {
 
           YieldOp::create(rewriter, elseYield2.getLoc(), mergedElseYields);
         }
-        if (elseYield)
+        if (elseYield) {
           rewriter.eraseOp(elseYield);
-        if (elseYield2)
+        }
+        if (elseYield2) {
           rewriter.eraseOp(elseYield2);
+        }
       }
     }
 
     SmallVector<Value> prevValues;
     SmallVector<Value> nextValues;
     for (const auto &pair : llvm::enumerate(combinedIf.getResults())) {
-      if (pair.index() < prevIf.getNumResults())
+      if (pair.index() < prevIf.getNumResults()) {
         prevValues.push_back(pair.value());
-      else
+      } else {
         nextValues.push_back(pair.value());
+      }
     }
     rewriter.replaceOp(prevIf, prevValues);
     rewriter.replaceOp(nextIf, nextValues);
@@ -2896,14 +3083,17 @@ struct RemoveEmptyElseBranch : public OpRewritePattern<IfOp> {
   LogicalResult matchAndRewrite(IfOp ifOp,
                                 PatternRewriter &rewriter) const override {
     // Cannot remove else region when there are operation results.
-    if (ifOp.getNumResults())
+    if (ifOp.getNumResults()) {
       return failure();
+    }
     Block *elseBlock = ifOp.getElseBlock();
-    if (!elseBlock || !llvm::hasSingleElement(*elseBlock))
+    if (!elseBlock || !llvm::hasSingleElement(*elseBlock)) {
       return failure();
+    }
     // Cannot remove else region with not-yield terminator
-    if (isTerminatorForParent(ifOp.getElseTerminator()))
+    if (isTerminatorForParent(ifOp.getElseTerminator())) {
       return failure();
+    }
     auto newIfOp = rewriter.cloneWithoutRegions(ifOp);
     rewriter.inlineRegionBefore(ifOp.getThenRegion(), newIfOp.getThenRegion(),
                                 newIfOp.getThenRegion().begin());
@@ -2921,37 +3111,44 @@ struct CombineNestedIfs : public OpRewritePattern<IfOp> {
                                 PatternRewriter &rewriter) const override {
     auto nestedOps = op.getThenBlock()->without_terminator();
     // Nested `if` must be the only op in block.
-    if (!llvm::hasSingleElement(nestedOps))
+    if (!llvm::hasSingleElement(nestedOps)) {
       return failure();
+    }
 
     // If there is an else block, it can only yield
-    if (op.getElseBlock() && !llvm::hasSingleElement(*op.getElseBlock()))
+    if (op.getElseBlock() && !llvm::hasSingleElement(*op.getElseBlock())) {
       return failure();
+    }
 
     auto nestedIf = dyn_cast<IfOp>(*nestedOps.begin());
-    if (!nestedIf)
+    if (!nestedIf) {
       return failure();
+    }
 
     if (nestedIf.getElseBlock() &&
-        !llvm::hasSingleElement(*nestedIf.getElseBlock()))
+        !llvm::hasSingleElement(*nestedIf.getElseBlock())) {
       return failure();
+    }
 
     // Support only YieldOp as terminator except for nestedIf's then-block
     if (isTerminatorForParent(op.getThenTerminator()) ||
         isTerminatorForParent(op.getElseTerminator()) ||
-        isTerminatorForParent(nestedIf.getElseTerminator()))
+        isTerminatorForParent(nestedIf.getElseTerminator())) {
       return failure();
+    }
 
     // Support ReturnOp/ContinueOp/BreakOp only inside nestedIf
     // and only in the absence of else-blocks
     if (isTerminatorForParent(nestedIf.getThenTerminator()) &&
-        (op.getElseBlock() || nestedIf.getElseBlock()))
+        (op.getElseBlock() || nestedIf.getElseBlock())) {
       return failure();
+    }
 
     SmallVector<Value> thenYield(op.getThenTerminator()->getOperands());
     SmallVector<Value> elseYield;
-    if (op.getElseBlock())
+    if (op.getElseBlock()) {
       llvm::append_range(elseYield, op.getElseTerminator()->getOperands());
+    }
 
     // A list of indices for which we should upgrade the value yielded
     // in the else to a select.
@@ -2987,12 +3184,14 @@ struct CombineNestedIfs : public OpRewritePattern<IfOp> {
       // defined outside the scf.if, by definition.
 
       // If the then value is defined within the scf.if, bail.
-      if (tup.value().getParentRegion() == &op.getThenRegion())
+      if (tup.value().getParentRegion() == &op.getThenRegion()) {
         return failure();
+      }
       // SelectOp can't be inserted for non-TileType value
       auto tileType = llvm::dyn_cast<TileType>(tup.value().getType());
-      if (!tileType || !tileType.getShape().empty())
+      if (!tileType || !tileType.getShape().empty()) {
         return failure();
+      }
       elseYieldsToUpgradeToSelect.push_back(tup.index());
     }
 
@@ -3006,15 +3205,17 @@ struct CombineNestedIfs : public OpRewritePattern<IfOp> {
     llvm::append_range(results, newIf.getResults());
     rewriter.setInsertionPoint(newIf);
 
-    for (auto idx : elseYieldsToUpgradeToSelect)
+    for (auto idx : elseYieldsToUpgradeToSelect) {
       results[idx] = SelectOp::create(rewriter, op.getLoc(), op.getCondition(),
                                       thenYield[idx], elseYield[idx]);
+    }
 
     rewriter.mergeBlocks(nestedIf.getThenBlock(), newIfBlock);
     rewriter.setInsertionPointToEnd(newIf.getThenBlock());
     auto newTerminator = newIf.getThenTerminator();
-    if (llvm::isa<YieldOp>(newTerminator))
+    if (llvm::isa<YieldOp>(newTerminator)) {
       rewriter.replaceOpWithNewOp<YieldOp>(newTerminator, thenYield);
+    }
     if (!elseYield.empty()) {
       rewriter.createBlock(&newIf.getElseRegion());
       rewriter.setInsertionPointToEnd(newIf.getElseBlock());
@@ -3033,11 +3234,13 @@ struct MoveTerminatorToParent : public OpRewritePattern<IfOp> {
 
   LogicalResult matchAndRewrite(IfOp op,
                                 PatternRewriter &rewriter) const override {
-    if (op.getElseRegion().empty())
+    if (op.getElseRegion().empty()) {
       return failure();
+    }
     if (!isTerminatorForParent(op.getThenTerminator()) ||
-        !isTerminatorForParent(op.getElseTerminator()))
+        !isTerminatorForParent(op.getElseTerminator())) {
       return failure();
+    }
 
     auto newIfOp = IfOp::create(rewriter, op.getLoc(), SmallVector<Type>(),
                                 op.getCondition());
@@ -3064,8 +3267,9 @@ LogicalResult IotaOp::verify() {
   auto shape = resultType.getShape();
   auto elemType = resultType.getElementType();
 
-  if (shape.size() != 1)
+  if (shape.size() != 1) {
     return emitOpError("expects result type to be 1-d tile");
+  }
 
   uint64_t numElems = shape[0];
   uint32_t bitwidth = elemType.getIntOrFloatBitWidth();
@@ -3074,10 +3278,11 @@ LogicalResult IotaOp::verify() {
   // We don't need to check for i64 since `numElems` cannot exceed 1^64.
   if (bitwidth < 64) {
     uint64_t maxValue = ((uint64_t)1) << bitwidth;
-    if (numElems > maxValue)
+    if (numElems > maxValue) {
       return emitOpError("the number of elements ")
              << numElems << " exceeds the maximum value of element type "
              << elemType;
+    }
   }
 
   return success();
@@ -3089,8 +3294,9 @@ LogicalResult IotaOp::verify() {
 
 LogicalResult JoinTokensOp::verify() {
   size_t numTokens = getTokens().size();
-  if (numTokens < 2)
+  if (numTokens < 2) {
     return emitOpError("expect two or more tokens");
+  }
   return success();
 }
 
@@ -3116,13 +3322,15 @@ cuda_tile::impl::verifyMemoryModelLoad(Operation *op,
 
   // Then validate scope requirements based on ordering
   if (memoryOrdering == MemoryOrderingSemantics::WEAK) {
-    if (scope.has_value())
+    if (scope.has_value()) {
       return op->emitOpError("weak load must not have memory scope");
+    }
   } else {
     // RELAXED or ACQUIRE require scope
-    if (!scope.has_value())
+    if (!scope.has_value()) {
       return op->emitOpError("memory scope is required for ")
              << stringifyMemoryOrderingSemantics(memoryOrdering) << " load";
+    }
   }
   return success();
 }
@@ -3132,8 +3340,9 @@ cuda_tile::impl::verifyMemoryModelLoad(Operation *op,
 //===----------------------------------------------------------------------===//
 
 LogicalResult LoadViewTkoOp::verify() {
-  if (failed(verifyViewLoadStoreCommon(this)))
+  if (failed(verifyViewLoadStoreCommon(this))) {
     return failure();
+  }
 
   return impl::verifyMemoryModelLoad(*this, getMemoryOrderingSemantics(),
                                      getMemoryScope());
@@ -3144,8 +3353,9 @@ LogicalResult LoadViewTkoOp::verify() {
 //===----------------------------------------------------------------------===//
 
 LogicalResult LoadPtrTkoOp::verify() {
-  if (failed(verifyOptHintsCommon(this)))
+  if (failed(verifyOptHintsCommon(this))) {
     return failure();
+  }
   return impl::verifyMemoryModelLoad(*this, getMemoryOrderingSemantics(),
                                      getMemoryScope());
 }
@@ -3176,8 +3386,9 @@ void LoopOp::print(OpAsmPrinter &p) {
   if (hasIters) {
     printCudaTileType(p, getInitValues().getTypes());
     p << " ";
-    if (hasReturn)
+    if (hasReturn) {
       p << "-> ";
+    }
   }
   if (hasReturn) {
     printCudaTileType(p, getResultTypes());
@@ -3195,22 +3406,28 @@ ParseResult LoopOp::parse(OpAsmParser &parser, OperationState &result) {
 
   if (failed(parser.parseOptionalKeyword("iter_values"))) {
     // no iter_values, but can still have a return type
-    if (succeeded(parser.parseOptionalColon()))
-      if (parseCudaTileType(parser, result.types))
+    if (succeeded(parser.parseOptionalColon())) {
+      if (parseCudaTileType(parser, result.types)) {
         return failure();
+      }
+    }
   } else {
     // iter_values are present and must have colon followed by types
     if (parser.parseAssignmentList(regionArgs, iterOperands) ||
-        parser.parseColon() || parseCudaTileType(parser, iterTypes))
+        parser.parseColon() || parseCudaTileType(parser, iterTypes)) {
       return failure();
-    if (regionArgs.size() != iterTypes.size())
+    }
+    if (regionArgs.size() != iterTypes.size()) {
       return parser.emitError(
           parser.getCurrentLocation(),
           "found different number of iter_values and types");
+    }
     // check for optional result type(s)
-    if (succeeded(parser.parseOptionalArrow()))
-      if (parseCudaTileType(parser, result.types))
+    if (succeeded(parser.parseOptionalArrow())) {
+      if (parseCudaTileType(parser, result.types)) {
         return failure();
+      }
+    }
     // Set region argument types for loop body
     for (auto [regionArg, type] : llvm::zip_equal(regionArgs, iterTypes)) {
       regionArg.type = type;
@@ -3219,13 +3436,15 @@ ParseResult LoopOp::parse(OpAsmParser &parser, OperationState &result) {
 
   // Parse region and attr dict.
   if (parseControlFlowRegion<LoopOp>(parser, *result.addRegion(), regionArgs) ||
-      parser.parseOptionalAttrDict(result.attributes))
+      parser.parseOptionalAttrDict(result.attributes)) {
     return failure();
+  }
 
   // Resolve operands.
   if (parser.resolveOperands(iterOperands, iterTypes, parser.getNameLoc(),
-                             result.operands))
+                             result.operands)) {
     return failure();
+  }
 
   return success();
 }
@@ -3237,8 +3456,9 @@ ParseResult LoopOp::parse(OpAsmParser &parser, OperationState &result) {
 ParseResult cuda_tile::MakeTensorViewOp::parse(OpAsmParser &parser,
                                                OperationState &result) {
   OpAsmParser::UnresolvedOperand basePtrOperand;
-  if (parser.parseOperand(basePtrOperand) || parser.parseComma())
+  if (parser.parseOperand(basePtrOperand) || parser.parseComma()) {
     return ParseResult::failure();
+  }
 
   SmallVector<std::tuple<int64_t, SMLoc>> opSideShape;
   SmallVector<std::tuple<int64_t, SMLoc>> opSideStrides;
@@ -3254,30 +3474,34 @@ ParseResult cuda_tile::MakeTensorViewOp::parse(OpAsmParser &parser,
     int64_t constant = 0;
     OptionalParseResult intParseResult = parser.parseOptionalInteger(constant);
     if (intParseResult.has_value()) {
-      if (failed(intParseResult.value()))
+      if (failed(intParseResult.value())) {
         return ParseResult::failure();
+      }
       elements.push_back({constant, location});
       return ParseResult::success();
     }
 
     OpAsmParser::UnresolvedOperand operand;
     OptionalParseResult valueParseResult = parser.parseOptionalOperand(operand);
-    if (!valueParseResult.has_value())
+    if (!valueParseResult.has_value()) {
       return parser.emitError(location, "expected either integer or SSA value");
+    }
 
-    if (failed(valueParseResult.value()))
+    if (failed(valueParseResult.value())) {
       return ParseResult::failure();
+    }
     dynamicValues.push_back(operand);
 
     elements.push_back({cuda_tile::TensorViewType::kDynamic, location});
 
     // Make sure dynamic elements remain int32_t-addressable.
     if (dynamicValues.size() >
-        static_cast<size_t>(std::numeric_limits<int32_t>::max()))
+        static_cast<size_t>(std::numeric_limits<int32_t>::max())) {
       return parser.emitError(location,
                               "too many dynamic operands of a particular kind "
                               "(must be fewer than ")
              << std::numeric_limits<int32_t>::max() << ")";
+    }
 
     return ParseResult::success();
   };
@@ -3293,76 +3517,87 @@ ParseResult cuda_tile::MakeTensorViewOp::parse(OpAsmParser &parser,
     return parseConstOrValue(opSideStrides, unresolvedDynStrideOperands);
   };
 
-  if (parser.parseKeyword("shape") || parser.parseEqual())
+  if (parser.parseKeyword("shape") || parser.parseEqual()) {
     return ParseResult::failure();
+  }
 
   SMLoc shapeDeclLoc = parser.getCurrentLocation();
   if (parser.parseCommaSeparatedList(OpAsmParser::Delimiter::Square,
                                      shapeElemParser) ||
       parser.parseComma() || parser.parseKeyword("strides") ||
-      parser.parseEqual())
+      parser.parseEqual()) {
     return ParseResult::failure();
+  }
 
   SMLoc strideDeclLoc = parser.getCurrentLocation();
   NamedAttrList attributes;
   if (parser.parseCommaSeparatedList(OpAsmParser::Delimiter::Square,
                                      strideElemParser) ||
-      parser.parseOptionalAttrDict(attributes) || parser.parseColon())
+      parser.parseOptionalAttrDict(attributes) || parser.parseColon()) {
     return ParseResult::failure();
+  }
 
   Type indexType;
   if (!unresolvedDynShapeOperands.empty() ||
       !unresolvedDynStrideOperands.empty()) {
-    if (parseCudaTileType(parser, indexType) || parser.parseArrow())
+    if (parseCudaTileType(parser, indexType) || parser.parseArrow()) {
       return ParseResult::failure();
+    }
   }
 
   Type maybeTensorViewType;
-  if (parseCudaTileType(parser, maybeTensorViewType))
+  if (parseCudaTileType(parser, maybeTensorViewType)) {
     return ParseResult::failure();
+  }
 
   cuda_tile::TensorViewType tensorView =
       llvm::dyn_cast<TensorViewType>(maybeTensorViewType);
-  if (!tensorView)
+  if (!tensorView) {
     return parser.emitError(parser.getCurrentLocation())
            << "expected 'tensor_view' type, but got " << maybeTensorViewType;
+  }
 
   if (parser.resolveOperand(
           basePtrOperand,
           cuda_tile::TileType::get(
               {}, cuda_tile::PointerType::get(tensorView.getElementType())),
-          result.operands))
+          result.operands)) {
     return ParseResult::failure();
+  }
 
   auto compareAndDiagnostic =
       [&](ArrayRef<std::tuple<int64_t, SMLoc>> fromOperands,
           ArrayRef<int64_t> fromTensorView, SMLoc fromOperandsDeclLocation,
           const char *name) -> ParseResult {
-    if (fromTensorView.size() != fromOperands.size())
+    if (fromTensorView.size() != fromOperands.size()) {
       return parser.emitError(fromOperandsDeclLocation)
              << "expected " << name << " declaration to contain "
              << fromTensorView.size()
              << " elements due to tensor_view type, but " << fromOperands.size()
              << " were provided";
+    }
 
     for (auto [i, fromOpAndLoc, fromTensorView] :
          llvm::enumerate(fromOperands, fromTensorView)) {
       auto [fromOp, operandLoc] = fromOpAndLoc;
-      if (fromOp == fromTensorView)
+      if (fromOp == fromTensorView) {
         continue;
+      }
 
       auto diag = parser.emitError(operandLoc);
       diag << "input " << name << " dimension " << i
            << " does not match tensor_view type (expected ";
-      if (fromTensorView == cuda_tile::TensorViewType::kDynamic)
+      if (fromTensorView == cuda_tile::TensorViewType::kDynamic) {
         diag << "dynamic";
-      else
+      } else {
         diag << fromTensorView;
+      }
       diag << ", got ";
-      if (fromOp == cuda_tile::TensorViewType::kDynamic)
+      if (fromOp == cuda_tile::TensorViewType::kDynamic) {
         diag << "dynamic";
-      else
+      } else {
         diag << fromOp;
+      }
       diag << ")";
       return ParseResult::failure();
     }
@@ -3372,17 +3607,20 @@ ParseResult cuda_tile::MakeTensorViewOp::parse(OpAsmParser &parser,
   if (compareAndDiagnostic(opSideShape, tensorView.getShape(), shapeDeclLoc,
                            "shape") ||
       compareAndDiagnostic(opSideStrides, tensorView.getStrides(),
-                           strideDeclLoc, "stride"))
+                           strideDeclLoc, "stride")) {
     return ParseResult::failure();
+  }
 
   if (indexType) {
     if (parser.resolveOperands(unresolvedDynShapeOperands, indexType,
-                               shapeDynamicValues))
+                               shapeDynamicValues)) {
       return ParseResult::failure();
+    }
 
     if (parser.resolveOperands(unresolvedDynStrideOperands, indexType,
-                               strideDynamicValues))
+                               strideDynamicValues)) {
       return ParseResult::failure();
+    }
   }
 
   result.addOperands(shapeDynamicValues);
@@ -3445,29 +3683,34 @@ LogicalResult cuda_tile::MakeTensorViewOp::verify() {
   Type baseElementType =
       llvm::cast<cuda_tile::PointerType>(getBase().getType().getElementType())
           .getPointeeType();
-  if (getResult().getType().getElementType() != baseElementType)
+  if (getResult().getType().getElementType() != baseElementType) {
     return emitOpError("expected pointer to ")
            << getResult().getType().getElementType()
            << " to build tensor_view of this type, got " << baseElementType;
+  }
 
-  if (getResult().getType().dynamicShapeAmount() != getDynamicShape().size())
+  if (getResult().getType().dynamicShapeAmount() != getDynamicShape().size()) {
     return emitOpError("expected ")
            << getResult().getType().dynamicShapeAmount()
            << " dynamic shape operands, got " << getDynamicShape().size();
+  }
 
-  if (getResult().getType().dynamicStrideAmount() != getDynamicStrides().size())
+  if (getResult().getType().dynamicStrideAmount() !=
+      getDynamicStrides().size()) {
     return emitOpError("expected ")
            << getResult().getType().dynamicStrideAmount()
            << " dynamic stride operands, got " << getDynamicStrides().size();
+  }
 
   Type dynamicValuesType;
   if (!getDynamicShape().empty()) {
     dynamicValuesType = getDynamicShape().getTypes().front();
     for (auto [i, dynamicValue] : llvm::enumerate(getDynamicShape())) {
-      if (dynamicValue.getType() != dynamicValuesType)
+      if (dynamicValue.getType() != dynamicValuesType) {
         return emitOpError("expected dynamic shape index ")
                << i << " to be of the same type as the other dynamic values ("
                << dynamicValuesType << "), got " << dynamicValue.getType();
+      }
     }
   }
 
@@ -3476,10 +3719,11 @@ LogicalResult cuda_tile::MakeTensorViewOp::verify() {
                             ? dynamicValuesType
                             : getDynamicStrides().getTypes().front();
     for (auto [i, dynamicValue] : llvm::enumerate(getDynamicStrides())) {
-      if (dynamicValue.getType() != dynamicValuesType)
+      if (dynamicValue.getType() != dynamicValuesType) {
         return emitOpError("expected dynamic stride index ")
                << i << " to be of the same type as the other dynamic values ("
                << dynamicValuesType << "), got " << dynamicValue.getType();
+      }
     }
   }
 
@@ -3499,21 +3743,25 @@ ParseResult cuda_tile::MakePartitionViewOp::parse(OpAsmParser &parser,
   OpAsmParser::UnresolvedOperand tensorView;
   NamedAttrList attributes;
   if (parser.parseOperand(tensorView) ||
-      parser.parseOptionalAttrDict(attributes) || parser.parseColon())
+      parser.parseOptionalAttrDict(attributes) || parser.parseColon()) {
     return ParseResult::failure();
+  }
 
   auto loc = parser.getCurrentLocation();
   Type maybePartitionView;
-  if (parseCudaTileType(parser, maybePartitionView))
+  if (parseCudaTileType(parser, maybePartitionView)) {
     return failure();
+  }
   PartitionViewType view = dyn_cast<PartitionViewType>(maybePartitionView);
   if (!view) {
     return parser.emitError(loc)
            << "expected 'partition_view' type, but got " << maybePartitionView;
   }
 
-  if (parser.resolveOperand(tensorView, view.getTensorView(), result.operands))
+  if (parser.resolveOperand(tensorView, view.getTensorView(),
+                            result.operands)) {
     return ParseResult::failure();
+  }
 
   result.types.push_back(view);
   result.addAttributes(attributes);
@@ -3533,11 +3781,12 @@ LogicalResult MakePartitionViewOp::verify() {
   PartitionViewType partition = getResult().getType();
   TensorViewType tensor_view = getTensorView().getType();
 
-  if (tensor_view != partition.getTensorView())
+  if (tensor_view != partition.getTensorView()) {
     return emitOpError()
            << "expected the type of the provided tensor_view value ("
            << tensor_view << ") to be the same as the view's tensor_view type ("
            << partition.getTensorView() << ")";
+  }
 
   return success();
 }
@@ -3570,8 +3819,9 @@ void cuda_tile::ModuleOp::build(OpBuilder &builder, OperationState &result,
 }
 
 LogicalResult cuda_tile::ModuleOp::verify() {
-  if (failed(DebugInfoVerifier::verifyModule(*this)))
+  if (failed(DebugInfoVerifier::verifyModule(*this))) {
     return failure();
+  }
   return success();
 }
 
@@ -3580,8 +3830,9 @@ LogicalResult cuda_tile::ModuleOp::verify() {
 //===----------------------------------------------------------------------===//
 
 LogicalResult MulFOp::verify() {
-  if (failed(verifyIEEERoundingModes(*this)))
+  if (failed(verifyIEEERoundingModes(*this))) {
     return failure();
+  }
   return verifyFtz(*this, getFlushToZero());
 }
 
@@ -3594,8 +3845,9 @@ LogicalResult PermuteOp::verify() {
   size_t rank = srcTy.getRank();
   ArrayRef<int32_t> permutation = getPermutation();
 
-  if (rank < 2)
+  if (rank < 2) {
     return emitOpError("expects at least rank 2, but got: ") << rank;
+  }
 
   // Check if the provided permutation is valid. A permutation is invalid if:
   // a) The number of elements in `permutation` is not equal to the `source`
@@ -3645,8 +3897,9 @@ static StringRef extractFormatExpression(StringRef str) {
   for (size_t i = 1, e = str.size(); i < e; ++i) {
     // Format string should end with one of these characters.
     // See https://cplusplus.com/reference/cstdio/printf/.
-    if (std::strchr("diuoxXeEfFgGaAcspn%", str[i]))
+    if (std::strchr("diuoxXeEfFgGaAcspn%", str[i])) {
       return str.substr(0, i + 1);
+    }
   }
   // Found a format string expression that does not end with a valid
   // character.
@@ -3655,12 +3908,14 @@ static StringRef extractFormatExpression(StringRef str) {
 
 LogicalResult PrintOp::verify() {
   int expectedNumArgs = 0;
-  for (int pos = 0, end = getStr().size(); pos < end; ++pos) {
-    if (getStr()[pos] != '%')
+  for (size_t pos = 0, end = getStr().size(); pos < end; ++pos) {
+    if (getStr()[pos] != '%') {
       continue;
+    }
     StringRef formatExpr = extractFormatExpression(getStr().substr(pos));
-    if (formatExpr.empty())
+    if (formatExpr.empty()) {
       return emitOpError("found unterminated format expression");
+    }
     if (formatExpr.compare("%%") == 0) {
       // This is an escaped '%' character.
       ++pos;
@@ -3668,9 +3923,10 @@ LogicalResult PrintOp::verify() {
     }
     ++expectedNumArgs;
   }
-  if (expectedNumArgs != static_cast<int>(getArgs().size()))
+  if (expectedNumArgs != static_cast<int>(getArgs().size())) {
     return emitOpError("incorrect number of operands: expected ")
            << expectedNumArgs << ", found " << getArgs().size();
+  }
   return success();
 }
 
@@ -3684,19 +3940,22 @@ static LogicalResult verifyAggregateOpRegions(Operation *op, Region &region,
                                               size_t numOperands) {
   size_t expectedNumBlockOperands = numOperands * 2;
   Block &block = region.front();
-  if (block.empty())
+  if (block.empty()) {
     return op->emitOpError("expect non-empty block");
-  if (block.getNumArguments() != expectedNumBlockOperands)
+  }
+  if (block.getNumArguments() != expectedNumBlockOperands) {
     return op->emitOpError()
            << "expect " << expectedNumBlockOperands
            << " block arguments but got: " << block.getNumArguments();
+  }
 
   // All block operands must be cuda_tile.tile with 0 rank.
   auto blockArgs = block.getArgumentTypes();
   for (auto [idx, blockArg] : llvm::enumerate(blockArgs)) {
     if (TileType tileTy = dyn_cast<TileType>(blockArg)) {
-      if (tileTy.getRank() == 0)
+      if (tileTy.getRank() == 0) {
         continue;
+      }
     }
     return op->emitOpError() << "expect 0-rank tile type at index: " << idx
                              << " but got: " << blockArg;
@@ -3713,15 +3972,17 @@ static LogicalResult verifyAggregateOpRegions(Operation *op, Region &region,
   for (size_t idx = 0; idx < expectedNumBlockOperands - 1; idx += 2) {
     auto argTy = dyn_cast<TileType>(blockArgs[idx]);
     auto identityArgTy = dyn_cast<TileType>(blockArgs[idx + 1]);
-    if (!argTy || !identityArgTy)
+    if (!argTy || !identityArgTy) {
       return op->emitOpError()
              << "expected TileType for block arguments but got types: "
              << blockArgs[idx] << " and " << blockArgs[idx + 1];
-    if (argTy.getElementType() != identityArgTy.getElementType())
+    }
+    if (argTy.getElementType() != identityArgTy.getElementType()) {
       return op->emitOpError()
              << "expect same element type for block argument at index: " << idx
              << " and " << idx + 1 << " but got: " << argTy.getElementType()
              << " and " << identityArgTy.getElementType();
+    }
   }
 
   // Block operand types should match operand types.
@@ -3729,41 +3990,46 @@ static LogicalResult verifyAggregateOpRegions(Operation *op, Region &region,
   for (size_t idx = 0; idx < numOperands; idx++) {
     auto operandTy = dyn_cast<TileType>(operandTypes[idx]);
     auto argTy = dyn_cast<TileType>(blockArgs[idx * 2]);
-    if (!operandTy || !argTy)
+    if (!operandTy || !argTy) {
       return op->emitOpError()
              << "expected TileType for operand and block argument but got "
                 "types: "
              << operandTypes[idx] << " and " << blockArgs[idx * 2];
-    if (operandTy.getElementType() != argTy.getElementType())
+    }
+    if (operandTy.getElementType() != argTy.getElementType()) {
       return op->emitOpError()
              << "expect same type for operand at index: " << idx
              << " and block argument at index: " << idx * 2
              << " but got: " << operandTy.getElementType() << " and "
              << argTy.getElementType();
+    }
   }
 
   auto term = cast<YieldOp>(block.getTerminator());
   auto termOperandTypes = term.getOperands().getTypes();
   size_t termOperands = term.getNumOperands();
-  if (termOperands != numOperands)
+  if (termOperands != numOperands) {
     return op->emitOpError()
            << "expect number of terminators operands (" << termOperands
            << ") to match number of operands (" << numOperands << ")";
+  }
 
   // Terminator operand types must match operand types.
   for (size_t idx = 0; idx < numOperands; idx++) {
     auto operandTy = dyn_cast<TileType>(operandTypes[idx]);
     auto termTy = dyn_cast<TileType>(termOperandTypes[idx]);
-    if (!operandTy || !termTy)
+    if (!operandTy || !termTy) {
       return op->emitOpError()
              << "expected TileType for operand and terminator types but got: "
              << operandTypes[idx] << " and " << termOperandTypes[idx];
-    if (operandTy.getElementType() != termTy.getElementType())
+    }
+    if (operandTy.getElementType() != termTy.getElementType()) {
       return op->emitOpError()
              << "expect same type for operand at index: " << idx
              << " and terminator argument at index: " << idx
              << " but got: " << operandTy.getElementType() << " and "
              << termTy.getElementType();
+    }
   }
 #ifndef MIX_CUDA_TILE_TILE_AA
   // We allow only pure cuda_tile operations.
@@ -3796,33 +4062,38 @@ verifyAggregateOp(Operation *op, ValueRange operands, TypeRange results,
   size_t numOperands = operands.size();
   size_t numResults = results.size();
 
-  if (numOperands == 0)
+  if (numOperands == 0) {
     return op->emitOpError() << "expect at least 1 operand";
+  }
 
-  if (numOperands != numResults)
+  if (numOperands != numResults) {
     return op->emitOpError() << "expect same number of operands and results";
+  }
 
   // Verify identities if provided:
   // a) #_identities == #_operands
   // b) type(identities[i]) == type(operands[i]) 0 <= i < operands.size
   if (identities) {
     size_t numIdentities = identities.size();
-    if (numOperands != numIdentities)
+    if (numOperands != numIdentities) {
       return op->emitOpError()
              << "expect identities to match the number of operands but got: "
              << numOperands << " operands and " << numIdentities
              << " identities";
+    }
 
     for (size_t idx = 0; idx < numOperands; idx++) {
       auto operandTy = dyn_cast<TileType>(operands[idx].getType());
-      if (!operandTy)
+      if (!operandTy) {
         return op->emitOpError()
                << "expected TileType for operand at index " << idx
                << " but got: " << operands[idx].getType();
+      }
       auto identityTy = cast<TypedAttr>(identities[idx]).getType();
       if ((operandTy.getElementType().isBF16() && identityTy.isF16()) ||
-          (operandTy.getElementType().isF16() && identityTy.isBF16()))
+          (operandTy.getElementType().isF16() && identityTy.isBF16())) {
         continue;
+      }
       if (operandTy.getElementType() != identityTy) {
         return op->emitOpError()
                << "expect same type for operand at index: " << idx
@@ -3835,9 +4106,10 @@ verifyAggregateOp(Operation *op, ValueRange operands, TypeRange results,
 
   // All the operand have the same shape see: SameOperandsShape.
   auto firstOperandTy = dyn_cast<TileType>(operands[0].getType());
-  if (!firstOperandTy)
+  if (!firstOperandTy) {
     return op->emitOpError() << "expected TileType for first operand but got: "
                              << operands[0].getType();
+  }
   size_t rank = firstOperandTy.getRank();
   if (dim < 0 || dim >= static_cast<int32_t>(rank)) {
     return op->emitOpError()
@@ -3849,15 +4121,17 @@ verifyAggregateOp(Operation *op, ValueRange operands, TypeRange results,
     for (size_t idx = 0; idx < numOperands; idx++) {
       auto operandTy = dyn_cast<TileType>(operands[idx].getType());
       auto resultTy = dyn_cast<TileType>(results[idx]);
-      if (!operandTy || !resultTy)
+      if (!operandTy || !resultTy) {
         return op->emitOpError()
                << "expected TileType for operand and result at index " << idx
                << " but got: " << operands[idx].getType() << " and "
                << results[idx];
-      if (operandTy != resultTy)
+      }
+      if (operandTy != resultTy) {
         return op->emitOpError()
                << "expect same type for operand at index: " << idx
                << " and result at index: " << idx;
+      }
     }
   }
 
@@ -3883,16 +4157,18 @@ ReduceOp::inferReturnTypes(MLIRContext *context, std::optional<Location> loc,
                            ReduceOp::Adaptor adaptor,
                            SmallVectorImpl<Type> &inferredReturnTypes) {
   auto operands = adaptor.getOperands();
-  if (operands.empty())
+  if (operands.empty()) {
     return failure();
+  }
 
   int32_t dim = adaptor.getDim();
   for (Value operand : operands) {
     TileType operandTy = cast<TileType>(operand.getType());
     SmallVector<int64_t> targetShape;
     for (auto [dimIdx, dimSize] : llvm::enumerate(operandTy.getShape())) {
-      if (dim != static_cast<int32_t>(dimIdx))
+      if (dim != static_cast<int32_t>(dimIdx)) {
         targetShape.push_back(dimSize);
+      }
     }
     inferredReturnTypes.push_back(
         TileType::get(targetShape, operandTy.getElementType()));
@@ -3901,21 +4177,24 @@ ReduceOp::inferReturnTypes(MLIRContext *context, std::optional<Location> loc,
 }
 
 void ReduceOp::getAsmResultNames(OpAsmSetValueNameFn setNameFn) {
-  if (getNumResults())
+  if (getNumResults()) {
     setNameFn(getResult(0), "reduce");
+  }
 }
 
 void ReduceOp::getAsmBlockArgumentNames(Region &region,
                                         OpAsmSetValueNameFn setNameFn) {
   for (auto [index, arg] : llvm::enumerate(region.getArguments())) {
     std::string name;
-    if (index % 2 == 0)
+    if (index % 2 == 0) {
       name = "reduce_lhs";
-    else
+    } else {
       name = "reduce_rhs";
+    }
 
-    if (region.getArguments().size() > 2)
+    if (region.getArguments().size() > 2) {
       name += std::to_string(index / 2);
+    }
 
     setNameFn(arg, name);
   }
@@ -3929,9 +4208,10 @@ LogicalResult ReshapeOp::verify() {
   auto sourceTileType = cast<cuda_tile::TileType>(getSource().getType());
   auto resultTileType = cast<cuda_tile::TileType>(getResult().getType());
   // Note: Element type is verified by `SameOperandsAndResultElementType`.
-  if (sourceTileType.getNumElements() != resultTileType.getNumElements())
+  if (sourceTileType.getNumElements() != resultTileType.getNumElements()) {
     return emitOpError("expected source tile and result tile to have the "
                        "same number of elements");
+  }
   return success();
 }
 
@@ -3955,15 +4235,17 @@ LogicalResult ReturnOp::verify() {
     if (auto entryOp = dyn_cast<EntryOp>(parentOp)) {
       // The operand number and types must match the function signature.
       const auto &results = entryOp.getFunctionType().getResults();
-      if (getNumOperands() != results.size())
+      if (getNumOperands() != results.size()) {
         return emitOpError("has ")
                << getNumOperands() << " operands, but enclosing function (@"
                << entryOp.getName() << ") returns " << results.size();
+      }
       // EntryOp must return zero results
-      if (getNumOperands() != 0)
+      if (getNumOperands() != 0) {
         return emitOpError("has ")
                << getNumOperands()
                << " operands, but entry function must return 0 operands";
+      }
       break;
     }
 
@@ -3971,18 +4253,21 @@ LogicalResult ReturnOp::verify() {
     if (auto funcOp = dyn_cast<Test_FuncOp>(parentOp)) {
       // The operand number and types must match the function signature.
       const auto &results = funcOp.getFunctionType().getResults();
-      if (getNumOperands() != results.size())
+      if (getNumOperands() != results.size()) {
         return emitOpError("has ")
                << getNumOperands() << " operands, but enclosing function (@"
                << funcOp.getName() << ") returns " << results.size();
+      }
 
-      for (size_t i = 0, e = results.size(); i != e; ++i)
-        if (getOperand(i).getType() != results[i])
+      for (size_t i = 0, e = results.size(); i != e; ++i) {
+        if (getOperand(i).getType() != results[i]) {
           return emitError() << "type of return operand " << i << " ("
                              << getOperand(i).getType()
                              << ") doesn't match function result type ("
                              << results[i] << ")"
                              << " in function @" << funcOp.getName();
+        }
+      }
       break;
     }
 #endif // TILE_IR_INCLUDE_TESTS
@@ -4024,8 +4309,9 @@ ScanOp::inferReturnTypes(MLIRContext *context, std::optional<Location> loc,
                          SmallVectorImpl<Type> &inferredReturnTypes) {
 
   auto operands = adaptor.getOperands();
-  if (operands.empty())
+  if (operands.empty()) {
     return failure();
+  }
 
   inferredReturnTypes.assign(operands.getTypes().begin(),
                              operands.getTypes().end());
@@ -4076,13 +4362,15 @@ cuda_tile::impl::verifyMemoryModelStore(Operation *op,
 
   // Then validate scope requirements based on ordering
   if (memoryOrdering == MemoryOrderingSemantics::WEAK) {
-    if (scope.has_value())
+    if (scope.has_value()) {
       return op->emitOpError("weak store must not have memory scope");
+    }
   } else {
     // RELAXED or RELEASE require scope
-    if (!scope.has_value())
+    if (!scope.has_value()) {
       return op->emitOpError("memory scope is required for ")
              << stringifyMemoryOrderingSemantics(memoryOrdering) << " store";
+    }
   }
   return success();
 }
@@ -4092,8 +4380,9 @@ cuda_tile::impl::verifyMemoryModelStore(Operation *op,
 //===----------------------------------------------------------------------===//
 
 LogicalResult StorePtrTkoOp::verify() {
-  if (failed(verifyOptHintsCommon(this)))
+  if (failed(verifyOptHintsCommon(this))) {
     return failure();
+  }
   return impl::verifyMemoryModelStore(*this, getMemoryOrderingSemantics(),
                                       getMemoryScope());
 }
@@ -4103,8 +4392,9 @@ LogicalResult StorePtrTkoOp::verify() {
 //===----------------------------------------------------------------------===//
 
 LogicalResult StoreViewTkoOp::verify() {
-  if (failed(verifyViewLoadStoreCommon(this)))
+  if (failed(verifyViewLoadStoreCommon(this))) {
     return failure();
+  }
   return impl::verifyMemoryModelStore(*this, getMemoryOrderingSemantics(),
                                       getMemoryScope());
 }
@@ -4114,8 +4404,9 @@ LogicalResult StoreViewTkoOp::verify() {
 //===----------------------------------------------------------------------===//
 
 LogicalResult SubFOp::verify() {
-  if (failed(verifyIEEERoundingModes(*this)))
+  if (failed(verifyIEEERoundingModes(*this))) {
     return failure();
+  }
   return verifyFtz(*this, getFlushToZero());
 }
 
@@ -4127,8 +4418,9 @@ LogicalResult TruncIOp::verify() {
   IntegerType from = cast<IntegerType>(getFrom().getType().getElementType());
   IntegerType to = cast<IntegerType>(getTo().getType().getElementType());
 
-  if (to.getWidth() >= from.getWidth())
+  if (to.getWidth() >= from.getWidth()) {
     return emitOpError("truncating to larger or identical integer");
+  }
 
   return success();
 }
@@ -4160,8 +4452,9 @@ struct CudaTileinlinerInterface : public DialectInlinerInterface {
   void handleTerminator(Operation *op, ValueRange valuesToRepl) const final {
     auto returnOp = llvm::cast<ReturnOp>(op);
     assert(returnOp.getNumOperands() == valuesToRepl.size());
-    for (const auto &it : llvm::enumerate(returnOp.getOperands()))
+    for (const auto &it : llvm::enumerate(returnOp.getOperands())) {
       valuesToRepl[it.index()].replaceAllUsesWith(it.value());
+    }
   }
 
   void processInlinedCallBlocks(
@@ -4190,8 +4483,9 @@ struct CudaTileinlinerInterface : public DialectInlinerInterface {
     }
 
     // If we didn't have an early return, nothing more to do here.
-    if (!hadEarlyReturn)
+    if (!hadEarlyReturn) {
       return;
+    }
     // Otherwise, we'll move the body of the inlined block into a new loop
     // operation, and replace the original return operation with a break
     // operation that will exit the loop.

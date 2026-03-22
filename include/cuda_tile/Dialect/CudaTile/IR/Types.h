@@ -7,14 +7,13 @@
 #ifndef CUDA_TILE_DIALECT_CUDATILE_IR_TYPES_H
 #define CUDA_TILE_DIALECT_CUDATILE_IR_TYPES_H
 
+#include "cuda_tile/Dialect/CudaTile/IR/Attributes.h"
+#include "cuda_tile/Dialect/CudaTile/IR/Interfaces.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypeInterfaces.h"
 #include "mlir/IR/OpImplementation.h"
 #include "mlir/IR/TypeRange.h"
 #include "mlir/IR/Types.h"
-
-#include "cuda_tile/Dialect/CudaTile/IR/Attributes.h"
-#include "cuda_tile/Dialect/CudaTile/IR/Interfaces.h"
 
 #define GET_TYPEDEF_CLASSES
 #include "cuda_tile/Dialect/CudaTile/IR/Types.h.inc"
@@ -54,20 +53,21 @@ ParseResult parseCudaTileType(AsmParser &p, SmallVectorImpl<Type> &types);
 
 /// Parses a single cuda tile type and splats 'types' to contain as many
 /// instances of that type as 'values'.
-ParseResult parseCudaTileTypeSplat(AsmParser &p, SmallVectorImpl<Type> &types,
-                                   ArrayRef<OpAsmParser::UnresolvedOperand> values);
+ParseResult
+parseCudaTileTypeSplat(AsmParser &p, SmallVectorImpl<Type> &types,
+                       ArrayRef<OpAsmParser::UnresolvedOperand> values);
 
 /// Print a type, stripping prefix if belonging to cuda_tile dialect
 void printCudaTileType(AsmPrinter &p, Type type);
-void printCudaTileType(AsmPrinter &p, Operation *op, Type type);
+void printCudaTileType(AsmPrinter &p, Operation *, Type type);
 void printCudaTileType(AsmPrinter &p, TypeRange types);
-void printCudaTileType(AsmPrinter &p, Operation *op, TypeRange types);
+void printCudaTileType(AsmPrinter &p, Operation *, TypeRange types);
 
 /// Print a splatted cuda tile type. Asserts that all of types are equal and
 /// prints only one instance of that type using 'printCudaTileType'.
 /// This allows using the function in a custom assembly format using:
 ///   custom<CudaTileTypeSplat>(type($values), $values)
-void printCudaTileTypeSplat(AsmPrinter &p, Operation *op, TypeRange types,
+void printCudaTileTypeSplat(AsmPrinter &p, Operation *, TypeRange types,
                             ValueRange values);
 
 /// This class represents any cuda tile type.
