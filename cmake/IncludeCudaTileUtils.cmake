@@ -65,6 +65,13 @@ function(cuda_tile_enable_warnings target)
       target_compile_options(${target} PRIVATE -Wshadow)
     endif()
   elseif(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
-    target_compile_options(${target} PRIVATE /W4 /WX)
+    target_compile_options(${target} PRIVATE
+      /W4
+      /WX
+      # MLIR tablegen-generated .inc headers contain methods with unreferenced
+      # formal parameters. Suppress C4100 (unreferenced formal parameter) to
+      # match the -Wno-unused-parameter suppression on GNU/Clang.
+      /wd4100
+    )
   endif()
 endfunction()
