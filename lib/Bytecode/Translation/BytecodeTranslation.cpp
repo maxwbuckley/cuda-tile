@@ -7,11 +7,10 @@
 //===----------------------------------------------------------------------===//
 #include "cuda_tile/Bytecode/Translation/BytecodeTranslation.h"
 
-#include "mlir/IR/BuiltinDialect.h"
-#include "mlir/Tools/mlir-translate/Translation.h"
-
 #include "cuda_tile/Bytecode/Reader/BytecodeReader.h"
 #include "cuda_tile/Bytecode/Writer/BytecodeWriter.h"
+#include "mlir/IR/BuiltinDialect.h"
+#include "mlir/Tools/mlir-translate/Translation.h"
 
 using namespace mlir;
 using namespace mlir::cuda_tile;
@@ -45,22 +44,23 @@ static void registerToTileIRBytecodeTranslation() {
   TranslateFromMLIRRegistration toBytecode(
       "mlir-to-cudatilebc", "Translate MLIR to CUDA Tile IR bytecode",
       [](Operation *op, raw_ostream &output) {
-        cuda_tile::ModuleOp moduleOp = dyn_cast<cuda_tile::ModuleOp>(op);
-        if (moduleOp)
-          return writeBytecode(output, moduleOp,
+        cuda_tile::ModuleOp cudaTileModule = dyn_cast<cuda_tile::ModuleOp>(op);
+        if (cudaTileModule) {
+          return writeBytecode(output, cudaTileModule,
                                BytecodeVersion::kCurrentVersion);
+        }
 
         // Also support a CUDA Tile IR Module nested in a MLIR Module for
         // convenience since the MLIR parse is adding one implicitly by default.
-        if (auto moduleOp = dyn_cast<mlir::ModuleOp>(op)) {
-          if (!llvm::hasSingleElement(*moduleOp.getBody()) ||
-              !llvm::isa<cuda_tile::ModuleOp>(moduleOp.getBody()->front())) {
+        if (auto mlirModule = dyn_cast<mlir::ModuleOp>(op)) {
+          if (!llvm::hasSingleElement(*mlirModule.getBody()) ||
+              !llvm::isa<cuda_tile::ModuleOp>(mlirModule.getBody()->front())) {
             op->emitError(
                 "expected a single CUDA Tile IR module in the MLIR module");
             return failure();
           }
           return writeBytecode(
-              output, cast<cuda_tile::ModuleOp>(moduleOp.getBody()->front()),
+              output, cast<cuda_tile::ModuleOp>(mlirModule.getBody()->front()),
               BytecodeVersion::kCurrentVersion);
         }
 

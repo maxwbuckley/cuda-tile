@@ -13,3 +13,4 @@ add_mlir_library(CudaTileBytecodeTranslation
     MLIRIR
     MLIRPass
 )
+cuda_tile_enable_warnings(CudaTileBytecodeTranslation)

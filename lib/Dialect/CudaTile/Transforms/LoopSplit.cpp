@@ -5,6 +5,10 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
+#include "cuda_tile/Dialect/CudaTile/IR/Attributes.h"
+#include "cuda_tile/Dialect/CudaTile/IR/Ops.h"
+#include "cuda_tile/Dialect/CudaTile/IR/Types.h"
+#include "cuda_tile/Dialect/CudaTile/Transforms/Passes.h"
 #include "mlir/IR/IRMapping.h"
 #include "mlir/IR/Value.h"
 #include "mlir/IR/Visitors.h"
@@ -14,10 +18,6 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/raw_ostream.h"
 
-#include "cuda_tile/Dialect/CudaTile/IR/Attributes.h"
-#include "cuda_tile/Dialect/CudaTile/IR/Ops.h"
-#include "cuda_tile/Dialect/CudaTile/IR/Types.h"
-#include "cuda_tile/Dialect/CudaTile/Transforms/Passes.h"
 #include <regex>
 #include <string>
 
@@ -33,8 +33,9 @@ static bool normalizeForOpCmp(ForOp forOp, CmpIOp cmp,
                               ComparisonPredicate &normalizedPred, Value &rhs) {
   // Currently ForOp always use signed comparison for bound checks,
   // so don't perform split if signedness of cmp doesn't match
-  if (cmp.getSignedness() == Signedness::Unsigned)
+  if (cmp.getSignedness() == Signedness::Unsigned) {
     return false;
+  }
   auto iv = forOp.getInductionVar();
   auto pred = cmp.getComparisonPredicate();
   if (cmp.getLhs() == iv) {
@@ -69,8 +70,9 @@ static bool normalizeForOpCmp(ForOp forOp, CmpIOp cmp,
 static bool isSplitProfitable(ForOp forOp, IfOp ifOp, int threshold) {
   // If threshold is 1, splitting will occur regardless of the content of the
   // IfOp. In that case, we can short-circuit.
-  if (threshold == 1)
+  if (threshold == 1) {
     return true;
+  }
   auto countOps = [&](auto &opRange) {
     bool hasHeavyOps = false;
     int opCount = 0;
@@ -103,26 +105,30 @@ static bool isSplittableCondition(ForOp forOp, IfOp ifOp,
                                   CmpIOp &cmpOpOut, bool &secondThen,
                                   bool &copyCmp, int threshold) {
   // Optimization hint says not to split loop at this branch
-  if (!threshold)
+  if (!threshold) {
     return false;
+  }
 
   // Condition is not Cmp operation
   auto cmp = ifOp.getCondition().getDefiningOp<CmpIOp>();
-  if (!cmp)
+  if (!cmp) {
     return false;
+  }
 
   ComparisonPredicate normalizedPred;
   Value rhs;
   // Normalizes the comparison so that induction variables are on the left.
   // If the comparison does not involve the induction variable (or not in a
   // tractable way), abort.
-  if (!normalizeForOpCmp(forOp, cmp, normalizedPred, rhs))
+  if (!normalizeForOpCmp(forOp, cmp, normalizedPred, rhs)) {
     return false;
+  }
 
   // Check that we compare induction variable with loop invariant
   auto rhsOp = rhs.getDefiningOp();
-  if (rhsOp && forOp.getBody()->findAncestorOpInBlock(*rhsOp))
+  if (rhsOp && forOp.getBody()->findAncestorOpInBlock(*rhsOp)) {
     return false;
+  }
 
   // Check that predicate is supported and determine what block goes to the
   // first loop
@@ -163,8 +169,9 @@ static bool isSplittableCondition(ForOp forOp, IfOp ifOp,
   }
 
   // No profitable IfOps found for splitting
-  if (!isProfitable)
+  if (!isProfitable) {
     return false;
+  }
 
   cmpOpOut = cmp;
   predOut = normalizedPred;
@@ -185,8 +192,9 @@ static ForOp copyLoop(RewriterBase &rewriter, ForOp forOp, CmpIOp cmpOp,
   rewriter.setInsertionPointToStart(newLoop.getBody());
 
   for (auto [orig, repl] : llvm::zip(forOp.getBody()->getArguments(),
-                                     newLoop.getBody()->getArguments()))
+                                     newLoop.getBody()->getArguments())) {
     mapper.map(orig, repl);
+  }
 
   // Process all operations selected for copy
   for (Operation *op : opsToClone) {
@@ -219,16 +227,18 @@ static ForOp copyLoop(RewriterBase &rewriter, ForOp forOp, CmpIOp cmpOp,
         // Map ifResult to the YieldOp
         auto yieldOp = cast<YieldOp>(subOp);
         for (auto [ifResult, yieldArg] :
-             llvm::zip_equal(ifOp.getResults(), yieldOp.getOperands()))
+             llvm::zip_equal(ifOp.getResults(), yieldOp.getOperands())) {
           mapper.map(ifResult, mapper.lookupOrDefault(yieldArg));
+        }
       } else {
         // General operation
         rewriter.clone(subOp, mapper);
       }
     }
     // Continue was met inside if-block - don't need to copy operations below
-    if (is_continue)
+    if (is_continue) {
       break;
+    }
   }
   return newLoop;
 }
@@ -237,14 +247,17 @@ static ForOp copyLoop(RewriterBase &rewriter, ForOp forOp, CmpIOp cmpOp,
 static inline bool isConstOne(ConstantOp op) {
   auto type = op.getType().getElementType();
   auto intType = llvm::dyn_cast<IntegerType>(type);
-  if (!intType)
+  if (!intType) {
     return false;
+  }
   DenseTypedElementsAttr cstAttr = op.getValue();
-  if (cstAttr.size() != 1)
+  if (cstAttr.size() != 1) {
     return false;
+  }
   auto intData = cstAttr.tryGetValues<APInt>();
-  if (succeeded(intData))
+  if (succeeded(intData)) {
     return (*intData->begin() == 1);
+  }
   return false;
 }
 
@@ -293,8 +306,9 @@ static void performLoopSplit(RewriterBase &rewriter, ForOp forOp,
   SmallVector<Operation *> opsToClone;
   // Collect operations for cloning
   for (Operation &op : *originalBody) {
-    if (copyCmp || (&op != cmp.getOperation()))
+    if (copyCmp || (&op != cmp.getOperation())) {
       opsToClone.push_back(&op);
+    }
   }
 
   // First loop: before the condition flips true
@@ -307,7 +321,7 @@ static void performLoopSplit(RewriterBase &rewriter, ForOp forOp,
                         ub, firstLoop.getResults(), secondThen);
 
   rewriter.replaceOp(forOp, secondLoop);
-};
+}
 
 /// Merge optimization hints - more precise hint (if any) gets priority
 //  Default value is splitThreshold == 1 defined in pass options
@@ -317,12 +331,15 @@ static void performLoopSplit(RewriterBase &rewriter, ForOp forOp,
 static int getSplitThreshold(std::optional<int> entryHint,
                              std::optional<int> forHint,
                              std::optional<int> ifHint, int splitThreshold) {
-  if (ifHint)
+  if (ifHint) {
     return ifHint.value();
-  if (forHint)
+  }
+  if (forHint) {
     return forHint.value();
-  if (entryHint)
+  }
+  if (entryHint) {
     return entryHint.value();
+  }
   return splitThreshold;
 }
 
@@ -330,8 +347,9 @@ static std::optional<int> getLoopSplitThresholdAttr(Operation *op) {
   std::optional<int> res = std::nullopt;
   Attribute loopSplitThreshold =
       op->getDiscardableAttr(kLoopSplitThresholdAttrName);
-  if (loopSplitThreshold)
+  if (loopSplitThreshold) {
     res = cast<IntegerAttr>(loopSplitThreshold).getInt();
+  }
   return res;
 }
 

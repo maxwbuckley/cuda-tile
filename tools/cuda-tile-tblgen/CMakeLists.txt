@@ -27,6 +27,7 @@ elseif(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
 endif()
 
 target_compile_options(cuda-tile-tblgen PRIVATE ${CUDA_TILE_TBLGEN_COMPILE_OPTS})
+cuda_tile_enable_warnings(cuda-tile-tblgen)
 
 target_link_libraries(cuda-tile-tblgen
   PRIVATE
